@@ -21,10 +21,10 @@ def init_db():
         username TEXT,
         first_name TEXT,
         is_banned INTEGER DEFAULT 0,
-        max_slots INTEGER DEFAULT ?,
+        max_slots INTEGER DEFAULT 3,
         joined_at TEXT
     )
-    """, (DEFAULT_MAX_BOTS_PER_USER,))
+    """)
     
     # Hosted bots table
     cursor.execute("""
@@ -73,7 +73,6 @@ def get_or_create_user(user_id: int, username: str = "", first_name: str = ""):
         cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
         user = cursor.fetchone()
     else:
-        # Update username/first_name if changed
         if user['username'] != username or user['first_name'] != first_name:
             cursor.execute("UPDATE users SET username = ?, first_name = ? WHERE user_id = ?", (username, first_name, user_id))
             conn.commit()
