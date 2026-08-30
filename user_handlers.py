@@ -3,6 +3,7 @@ import uuid
 import shutil
 import re
 import logging
+import httpx
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 from config import ADMIN_ID, DATA_DIR
@@ -12,8 +13,30 @@ from templates import TEMPLATES
 
 logger = logging.getLogger("GravixHost.User")
 
-# Conversation States for Hosting
 NAME, TOKEN, CODE = range(3)
+TPL_TOKEN = 10
+
+def sanitize_token(raw_token: str) -> str:
+    return raw_token.strip().strip("`").strip("'").strip('"').strip()
+
+async def verify_telegram_token(token: str) -> tuple[bool, str, str]:
+    cleaned = sanitize_token(token)
+    if not re.match(r"^\d{6,14}:[a-zA-Z0-9_-]{30,45}$", cleaned):
+        return False, "", "Invalid token format. Please check and copy the full token from @BotFather."
+    
+    url = f"https://api.telegram.org/bot{cleaned}/getMe"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url)
+            data = resp.json()
+            if data.get("ok"):
+                username = data["result"].get("username", "UnnamedBot")
+                return True, username, ""
+            else:
+                return False, "", f"Telegram rejected token: {data.get('description', 'Unauthorized')}"
+    except Exception as e:
+        logger.warning(f"Could not reach Telegram API for token validation: {e}")
+        return True, "Bot", ""
 
 def get_main_menu_keyboard(user_id: int):
     keyboard = [
@@ -26,7 +49,7 @@ def get_main_menu_keyboard(user_id: int):
             InlineKeyboardButton("📊 My Account & Slots", callback_data="user_account")
         ],
         [
-            InlineKeyboardButton("❓ Help & Documentation", callback_data="user_help"),
+            InlineKeyboardButton("❓ Help & Guidelines", callback_data="user_help"),
             InlineKeyboardButton("🔄 Refresh", callback_data="user_menu")
         ]
     ]
@@ -105,16 +128,15 @@ async def user_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "1️⃣ **Get a Bot Token:**\n"
             "   • Open @BotFather on Telegram.\n"
-            "   • Send `/newbot` and follow the instructions to get your API Token.\n\n"
+            "   • Send `/newbot` and follow instructions to get your API Token.\n\n"
             "2️⃣ **How to Host a Bot:**\n"
-            "   • Click **➕ Host New Bot**.\n"
-            "   • Give your bot a friendly name.\n"
-            "   • Paste your Bot Token.\n"
-            "   • Upload your Python `.py` file or choose a template.\n\n"
+            "   • Click **➕ Host New Bot** or **⚡ Quick Template Deploy**.\n"
+            "   • Enter your Bot Token from @BotFather.\n"
+            "   • Upload your Python `.py` script or select a pre-built template.\n\n"
             "3️⃣ **Supported Python Libraries:**\n"
-            "   • `python-telegram-bot`, `telebot (pyTelegramBotAPI)`, `aiogram`, `requests`, `aiohttp`.\n\n"
+            "   • `python-telegram-bot`, `telebot (pyTelegramBotAPI)`, `aiogram`, `requests`, `aiohttp`, `httpx`.\n\n"
             "4️⃣ **Managing Bots:**\n"
-            "   • Access logs and start/stop controls anytime in **🤖 My Hosted Bots**."
+            "   • Access logs, restart, and monitor status in **🤖 My Hosted Bots**."
         )
         keyboard = [[InlineKeyboardButton("🔙 Main Menu", callback_data="user_menu")]]
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
@@ -131,10 +153,13 @@ async def user_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 "🤖 **My Hosted Bots**\n"
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
                 "You haven't hosted any bots yet!\n\n"
-                "Click the button below to deploy your first bot:"
+                "Deploy a custom script or a 1-click template to get started:"
             )
             keyboard = [
-                [InlineKeyboardButton("➕ Host a Bot Now", callback_data="user_host_start")],
+                [
+                    InlineKeyboardButton("➕ Host Custom Bot", callback_data="user_host_start"),
+                    InlineKeyboardButton("⚡ Quick Template", callback_data="user_templates")
+                ],
                 [InlineKeyboardButton("🔙 Main Menu", callback_data="user_menu")]
             ]
             await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
@@ -167,13 +192,14 @@ async def user_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
             return
 
         status_emoji = "🟢" if bot_data['status'] == "RUNNING" else ("🔴" if bot_data['status'] in ["FAILED", "CRASHED"] else "⚪")
+        created_str = bot_data['created_at'][:19].replace('T', ' ') if bot_data.get('created_at') else "N/A"
         text = (
             f"🤖 **Bot Details: {bot_data['bot_name']}**\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             f"📊 **Status:** {status_emoji} `{bot_data['status']}`\n"
             f"🆔 **Bot ID:** `{bot_data['bot_id']}`\n"
             f"🔑 **Token:** `{bot_data['bot_token'][:10]}...{bot_data['bot_token'][-4:]}`\n"
-            f"📅 **Created:** `{bot_data['created_at'][:19].replace('T', ' ')}`\n"
+            f"📅 **Created:** `{created_str}`\n"
             f"🔄 **Auto-Restart:** `{'Enabled' if bot_data.get('auto_restart') else 'Disabled'}`\n"
         )
 
@@ -264,26 +290,103 @@ async def user_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
         keyboard.append([InlineKeyboardButton("🔙 Main Menu", callback_data="user_menu")])
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
-    elif data.startswith("deploy_tpl_"):
-        tpl_key = data.split("_")[2]
-        if tpl_key not in TEMPLATES:
-            await query.answer("Template not found.", show_alert=True)
-            return
+# Quick Template Deployment Conversation Flow
+async def template_select_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    tpl_key = query.data.split("deploy_tpl_")[1]
 
-        context.user_data['deploy_template_key'] = tpl_key
-        tinfo = TEMPLATES[tpl_key]
-        text = (
-            f"⚡ **Deploy: {tinfo['name']}**\n"
-            "━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"ℹ️ {tinfo['description']}\n\n"
-            "To deploy this template, please enter your **Telegram Bot Token** obtained from @BotFather:\n\n"
-            "*(Send your token as a message)*"
-        )
-        keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data="user_templates")]]
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-        context.user_data['awaiting_template_token'] = True
+    db_user = database.get_or_create_user(user_id)
+    if db_user['is_banned']:
+        await query.answer("🚫 Account Suspended", show_alert=True)
+        return ConversationHandler.END
 
-# Conversation Handler for Custom Bot Creation
+    maint = database.get_setting("maintenance_mode", "0") == "1"
+    if maint and user_id != ADMIN_ID:
+        await query.answer("⚠️ Platform is under maintenance. New bot deployments are paused.", show_alert=True)
+        return ConversationHandler.END
+
+    user_bots = database.get_user_bots(user_id)
+    max_slots = db_user.get('max_slots', 3)
+    if len(user_bots) >= max_slots:
+        await query.answer(f"⚠️ Slot Limit Reached ({len(user_bots)}/{max_slots} bots).", show_alert=True)
+        return ConversationHandler.END
+
+    if tpl_key not in TEMPLATES:
+        await query.answer("Template not found.", show_alert=True)
+        return ConversationHandler.END
+
+    await query.answer()
+    context.user_data['deploy_template_key'] = tpl_key
+    tinfo = TEMPLATES[tpl_key]
+
+    text = (
+        f"⚡ **Deploy: {tinfo['name']}**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"ℹ️ {tinfo['description']}\n\n"
+        "Please send your **Telegram Bot Token** from @BotFather:\n"
+        "*(Example: `1234567890:AAH_sampleToken...`)*\n\n"
+        "Send token as a text message or /cancel to abort."
+    )
+    keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data="cancel_tpl")]]
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    return TPL_TOKEN
+
+async def template_token_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    raw_token = update.message.text.strip()
+    token = sanitize_token(raw_token)
+    tpl_key = context.user_data.get('deploy_template_key', 'echo_bot')
+    tinfo = TEMPLATES.get(tpl_key, TEMPLATES['echo_bot'])
+
+    is_valid, bot_uname, err_msg = await verify_telegram_token(token)
+    if not is_valid:
+        await update.message.reply_text(f"⚠️ {err_msg}\n\nPlease enter a valid Bot Token from @BotFather:")
+        return TPL_TOKEN
+
+    bot_name = f"@{bot_uname} ({tinfo['name'].split(' ', 1)[1] if ' ' in tinfo['name'] else tinfo['name']})"
+    bot_id = str(uuid.uuid4())[:8]
+    bot_dir = os.path.join(DATA_DIR, "bots", f"{user_id}_{bot_id}")
+    os.makedirs(bot_dir, exist_ok=True)
+    script_path = os.path.join(bot_dir, "main.py")
+
+    with open(script_path, "w", encoding="utf-8") as f:
+        f.write(tinfo['code'])
+
+    database.create_hosted_bot(bot_id, user_id, bot_name, token, script_path)
+    status_msg = await update.message.reply_text("⚙️ Provisioning template and launching bot instance...")
+
+    success, msg = await bot_manager.start_bot(bot_id)
+    context.user_data.clear()
+
+    status_icon = "🟢 RUNNING" if success else "🔴 FAILED TO START"
+    resp_text = (
+        f"🎉 **Template Bot Successfully Launched!**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🤖 **Bot Name:** `{bot_name}`\n"
+        f"🆔 **Bot ID:** `{bot_id}`\n"
+        f"📊 **Status:** {status_icon}\n"
+        f"ℹ️ **Details:** {msg}\n\n"
+        "Your bot is now live and running 24/7 on Gravix-Host."
+    )
+    keyboard = [
+        [InlineKeyboardButton("📜 View Logs", callback_data=f"ubot_logs_{bot_id}")],
+        [InlineKeyboardButton("🤖 My Hosted Bots", callback_data="user_my_bots_0")],
+        [InlineKeyboardButton("🏠 Main Menu", callback_data="user_menu")]
+    ]
+    await status_msg.edit_text(resp_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    return ConversationHandler.END
+
+async def cancel_tpl(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    if update.callback_query:
+        await update.callback_query.answer("Template deployment cancelled.")
+        await start_command(update, context)
+    else:
+        await update.message.reply_text("❌ Template deployment cancelled.", reply_markup=get_main_menu_keyboard(update.effective_user.id))
+    return ConversationHandler.END
+
+# Custom Bot Hosting Flow
 async def host_bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -326,25 +429,29 @@ async def host_bot_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"➕ **Host: {bot_name} (Step 2/3)**\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         "Now send your **Telegram Bot Token** from @BotFather:\n"
-        "(Format: `123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ`)\n\n"
+        "(Example: `1234567890:AAH_sampleToken...`)\n\n"
         "*(Send token or /cancel to abort)*"
     )
     await update.message.reply_text(text, parse_mode="Markdown")
     return TOKEN
 
 async def host_bot_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    token = update.message.text.strip()
-    # Basic token regex check
-    if not re.match(r"^\d{8,11}:[a-zA-Z0-9_-]{35}$", token):
-        await update.message.reply_text("⚠️ Invalid token format. Please send a valid Telegram Bot Token from @BotFather:")
+    raw_token = update.message.text.strip()
+    token = sanitize_token(raw_token)
+
+    is_valid, bot_uname, err_msg = await verify_telegram_token(token)
+    if not is_valid:
+        await update.message.reply_text(f"⚠️ {err_msg}\n\nPlease enter a valid Bot Token from @BotFather:")
         return TOKEN
 
     context.user_data['new_bot_token'] = token
+    context.user_data['bot_uname'] = bot_uname
+
     text = (
         "➕ **Upload Bot Code (Step 3/3)**\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         "How would you like to provide your bot code?\n\n"
-        "1. **Upload a `.py` file** (Send the python script as a document)\n"
+        "1. **Upload a `.py` file** (Send the Python script as a document)\n"
         "2. **Paste Python code directly** in chat\n"
         "3. Or type `/cancel` to abort."
     )
@@ -376,12 +483,11 @@ async def host_bot_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Please send either a `.py` document or python code text.")
         return CODE
 
-    # Create database record
     database.create_hosted_bot(bot_id, user_id, bot_name, bot_token, script_path)
 
-    # Auto-start bot
     status_msg = await update.message.reply_text("⚙️ Provisioning environment and starting bot...")
     success, msg = await bot_manager.start_bot(bot_id)
+    context.user_data.clear()
 
     status_icon = "🟢 RUNNING" if success else "🔴 FAILED TO START"
     resp_text = (
@@ -409,53 +515,3 @@ async def cancel_host(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ Bot hosting process cancelled.", reply_markup=get_main_menu_keyboard(update.effective_user.id))
     return ConversationHandler.END
-
-# Plain message handler for template token input
-async def handle_template_token_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.user_data.get('awaiting_template_token'):
-        return False
-
-    user_id = update.effective_user.id
-    tpl_key = context.user_data.get('deploy_template_key')
-    token = update.message.text.strip()
-
-    if not re.match(r"^\d{8,11}:[a-zA-Z0-9_-]{35}$", token):
-        await update.message.reply_text("⚠️ Invalid token format. Please send a valid Telegram Bot Token from @BotFather:")
-        return True
-
-    tinfo = TEMPLATES.get(tpl_key)
-    if not tinfo:
-        await update.message.reply_text("⚠️ Template not found.")
-        context.user_data['awaiting_template_token'] = False
-        return True
-
-    bot_name = tinfo['name'].split(" ", 1)[1] if " " in tinfo['name'] else tinfo['name']
-    bot_id = str(uuid.uuid4())[:8]
-    bot_dir = os.path.join(DATA_DIR, "bots", f"{user_id}_{bot_id}")
-    os.makedirs(bot_dir, exist_ok=True)
-    script_path = os.path.join(bot_dir, "main.py")
-
-    with open(script_path, "w", encoding="utf-8") as f:
-        f.write(tinfo['code'])
-
-    database.create_hosted_bot(bot_id, user_id, bot_name, token, script_path)
-    status_msg = await update.message.reply_text("⚙️ Deploying template and starting bot...")
-
-    success, msg = await bot_manager.start_bot(bot_id)
-    context.user_data['awaiting_template_token'] = False
-
-    status_icon = "🟢 RUNNING" if success else "🔴 FAILED"
-    resp_text = (
-        f"🎉 **Template Bot Deployed!**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🤖 **Name:** `{bot_name}`\n"
-        f"🆔 **Bot ID:** `{bot_id}`\n"
-        f"📊 **Status:** {status_icon}\n"
-        f"ℹ️ {msg}"
-    )
-    keyboard = [
-        [InlineKeyboardButton("📜 View Logs", callback_data=f"ubot_logs_{bot_id}")],
-        [InlineKeyboardButton("🤖 My Bots", callback_data="user_my_bots_0")]
-    ]
-    await status_msg.edit_text(resp_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-    return True
