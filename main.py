@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import signal
 import sys
 from telegram import Update
 from telegram.ext import (
@@ -28,10 +27,13 @@ from user_handlers import (
     host_bot_token,
     host_bot_code,
     cancel_host,
-    handle_template_token_input,
+    template_select_start,
+    template_token_received,
+    cancel_tpl,
     NAME,
     TOKEN,
-    CODE
+    CODE,
+    TPL_TOKEN
 )
 
 logging.basicConfig(
@@ -44,10 +46,8 @@ async def post_init(application):
     logger.info("Initializing Gravix-Host Database & Storage...")
     database.init_db()
 
-    # Start background watchdog
     asyncio.create_task(bot_manager.watchdog_loop())
 
-    # Auto-resume previously running bots
     all_bots = database.get_all_hosted_bots()
     resumed = 0
     for b in all_bots:
@@ -59,18 +59,14 @@ async def post_init(application):
     logger.info(f"Gravix-Host initialized. Auto-resumed {resumed} bot(s).")
 
 async def general_message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Check if user is in template token submission flow
-    handled = await handle_template_token_input(update, context)
-    if not handled:
-        # Default response if non-command text received
-        await update.message.reply_text("💡 Please use the interactive menu buttons or /start to interact with Gravix-Host.")
+    await update.message.reply_text("💡 Please use the interactive menu buttons or /start to interact with Gravix-Host.")
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Exception while handling an update: {context.error}")
 
 def main():
-    if not BOT_TOKEN:
-        logger.error("BOT_TOKEN environment variable is not set! Exiting.")
+    if not BOT_TOKEN or BOT_TOKEN == "DISABLED":
+        logger.error("BOT_TOKEN environment variable is not valid! Exiting.")
         sys.exit(1)
 
     logger.info(f"Starting Gravix-Host Telegram Master Bot (Admin: {ADMIN_ID})...")
@@ -81,7 +77,6 @@ def main():
         .build()
     )
 
-    # Conversation handler for hosting a new custom bot
     host_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(host_bot_start, pattern="^user_host_start$")],
         states={
@@ -99,17 +94,28 @@ def main():
         per_message=False
     )
 
-    # Register handlers
+    tpl_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(template_select_start, pattern="^deploy_tpl_")],
+        states={
+            TPL_TOKEN: [MessageHandler(filters.TEXT & ~filters.COMMAND, template_token_received)]
+        },
+        fallbacks=[
+            CommandHandler("cancel", cancel_tpl),
+            CallbackQueryHandler(cancel_tpl, pattern="^cancel_tpl$")
+        ],
+        per_message=False
+    )
+
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("admin", admin_panel))
     application.add_handler(CommandHandler("broadcast", broadcast_command))
+    
     application.add_handler(host_conv)
+    application.add_handler(tpl_conv)
 
-    # Callback query routing
     application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^admin_"))
     application.add_handler(CallbackQueryHandler(user_callback_handler))
 
-    # General text messages
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, general_message_router))
 
     application.add_error_handler(error_handler)
