@@ -62,6 +62,29 @@ class BotProcessManager:
         except Exception as e:
             logger.error(f"Error streaming logs for bot {bot_id}: {e}")
 
+    def _get_startup_error_snippet(self, bot_id: str, max_lines: int = 10) -> str:
+        bot_id = str(bot_id).strip()
+        # Check in-memory buffer first
+        if bot_id in self.log_buffers and self.log_buffers[bot_id]:
+            lines = list(self.log_buffers[bot_id])
+            content_lines = [l for l in lines if not ("[SYSTEM] Process started" in l)]
+            target = content_lines if content_lines else lines
+            if target:
+                return "\n".join(target[-max_lines:])
+
+        # Fallback to reading file
+        log_file = self.get_log_file_path(bot_id)
+        if os.path.exists(log_file):
+            try:
+                with open(log_file, "r", encoding="utf-8") as f:
+                    file_lines = [line.rstrip() for line in f.readlines() if line.strip()]
+                    if file_lines:
+                        return "\n".join(file_lines[-max_lines:])
+            except Exception as e:
+                logger.error(f"Error reading log file for snippet: {e}")
+
+        return "No stderr output captured."
+
     async def start_bot(self, bot_id: str) -> Tuple[bool, str]:
         bot_id = str(bot_id).strip()
         if bot_id in self.active_processes and self.active_processes[bot_id].returncode is None:
@@ -91,20 +114,33 @@ class BotProcessManager:
                 env=env
             )
             self.active_processes[bot_id] = process
-            database.update_bot_status(bot_id, "RUNNING")
-
-            # Append system log entry
-            self._append_system_log(bot_id, f"🚀 [SYSTEM] Process started successfully (PID: {process.pid})")
 
             # Start background log streaming tasks
             t1 = asyncio.create_task(self._stream_logs(bot_id, process.stdout))
             t2 = asyncio.create_task(self._stream_logs(bot_id, process.stderr, prefix="[STDERR] "))
             self.log_tasks[bot_id] = asyncio.gather(t1, t2)
 
+            # 1.5-second startup liveness probe
+            await asyncio.sleep(1.5)
+
+            if process.returncode is not None:
+                # Process died on boot
+                self.active_processes.pop(bot_id, None)
+                await asyncio.sleep(0.1)  # Allow log streaming tasks to drain
+                stderr_snippet = self._get_startup_error_snippet(bot_id)
+                database.update_bot_status(bot_id, "FAILED")
+                self._append_system_log(bot_id, f"❌ [SYSTEM] Process crashed on startup (Exit code {process.returncode})")
+                logger.warning(f"Bot {bot_id} crashed on startup with exit code {process.returncode}")
+                return False, f"Process crashed on startup (Exit code {process.returncode}):\n{stderr_snippet}"
+
+            # Process is actively running after 1.5s
+            database.update_bot_status(bot_id, "RUNNING")
+            self._append_system_log(bot_id, f"🚀 [SYSTEM] Process started successfully (PID: {process.pid})")
             logger.info(f"Bot {bot_id} ({bot_data.get('bot_name', 'Unnamed')}) started with PID {process.pid}")
             return True, f"Bot started successfully (PID: {process.pid})"
         except Exception as e:
             logger.exception(f"Failed to start bot {bot_id}: {e}")
+            self.active_processes.pop(bot_id, None)
             database.update_bot_status(bot_id, "FAILED")
             self._append_system_log(bot_id, f"❌ [SYSTEM] Failed to start process: {str(e)}")
             return False, f"Failed to start bot: {str(e)}"

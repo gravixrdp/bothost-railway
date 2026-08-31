@@ -148,7 +148,10 @@ def main():
         ],
         states={
             NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, host_bot_name)],
-            TOKEN: [MessageHandler(filters.TEXT & ~filters.COMMAND, host_bot_token)],
+            TOKEN: [
+                MessageHandler(filters.Regex(r"^(⏩ Skip \(Auto-Detect Token\)|skip)$"), host_bot_token),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, host_bot_token)
+            ],
             CODE: [
                 MessageHandler(filters.Document.ALL, host_bot_code),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, host_bot_code)

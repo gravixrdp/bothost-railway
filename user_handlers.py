@@ -4,6 +4,7 @@ import shutil
 import re
 import html
 import logging
+import asyncio
 from datetime import datetime, timezone
 import httpx
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
@@ -12,6 +13,7 @@ from config import ADMIN_ID, DATA_DIR, BOT_TOKEN
 import database
 from bot_manager import bot_manager
 from templates import TEMPLATES
+from code_analyzer import validate_python_syntax, extract_token_from_code, is_cancellation_text
 
 logger = logging.getLogger("GravixHost.User")
 
@@ -231,6 +233,12 @@ def get_back_to_main_keyboard() -> ReplyKeyboardMarkup:
 
 def get_cancel_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [[KeyboardButton("❌ Cancel")]]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+def get_token_input_keyboard() -> ReplyKeyboardMarkup:
+    keyboard = [
+        [KeyboardButton("⏩ Skip (Auto-Detect Token)"), KeyboardButton("❌ Cancel")]
+    ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 # ---------------------------------------------------------
@@ -855,7 +863,10 @@ async def template_token_received(update: Update, context: ContextTypes.DEFAULT_
         return ConversationHandler.END
 
     user_id = update.effective_user.id
-    raw_token = update.message.text.strip()
+    raw_token = update.message.text.strip() if (update.message and update.message.text) else ""
+    if is_cancellation_text(raw_token):
+        return await cancel_tpl(update, context)
+
     token = sanitize_token(raw_token)
     tpl_key = context.user_data.get('deploy_template_key', 'echo_bot')
     tinfo = TEMPLATES.get(tpl_key, TEMPLATES['echo_bot'])
@@ -1010,7 +1021,11 @@ async def host_bot_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
 
-    bot_name = update.message.text.strip()
+    raw_text = update.message.text.strip() if (update.message and update.message.text) else ""
+    if is_cancellation_text(raw_text):
+        return await cancel_host(update, context)
+
+    bot_name = raw_text
     if len(bot_name) < 2 or len(bot_name) > 30:
         await update.message.reply_text(
             "<blockquote>⚠️ <b>Invalid Name:</b> Name must be between 2 and 30 characters. Please enter a valid name:</blockquote>",
@@ -1020,6 +1035,7 @@ async def host_bot_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return NAME
 
     context.user_data['new_bot_name'] = bot_name
+    context.user_data['bot_name'] = bot_name
     safe_bot_name = html.escape(bot_name)
     header = make_header_card("ᴄ ᴜ s ᴛ ᴏ ᴍ  ʙ ᴏ ᴛ  ʜ ᴏ s ᴛ ɪ ɴ ɢ", "Step 2 of 3: API Authentication")
     text = (
@@ -1027,10 +1043,11 @@ async def host_bot_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<blockquote>Target Bot: <b>{safe_bot_name}</b></blockquote>\n\n"
         "<b>🔑 Telegram Bot Token:</b>\n"
         "<blockquote>Please send the API token obtained from @BotFather.\n"
-        "<i>Format:</i> <code>1234567890:AAH_sampleToken...</code></blockquote>\n\n"
-        "👇 <i>Send your token as text or tap <b>❌ Cancel</b> below:</i>"
+        "<i>Format:</i> <code>1234567890:AAH_sampleToken...</code>\n\n"
+        "💡 <i>If your token is hardcoded in your Python script, tap <b>⏩ Skip (Auto-Detect Token)</b>.</i></blockquote>\n\n"
+        "👇 <i>Send your token as text or choose an option below:</i>"
     )
-    await update.message.reply_text(text, reply_markup=get_cancel_keyboard(), parse_mode="HTML")
+    await update.message.reply_text(text, reply_markup=get_token_input_keyboard(), parse_mode="HTML")
     return TOKEN
 
 async def host_bot_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1042,14 +1059,39 @@ async def host_bot_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
 
-    raw_token = update.message.text.strip()
+    raw_token = update.message.text.strip() if (update.message and update.message.text) else ""
+    if is_cancellation_text(raw_token):
+        return await cancel_host(update, context)
+
+    # Check for Skip (Auto-Detect Token)
+    if raw_token == "⏩ Skip (Auto-Detect Token)" or raw_token.lower() in ("skip", "/skip"):
+        context.user_data['bot_token'] = 'AUTO_DETECT'
+        context.user_data['new_bot_token'] = 'AUTO_DETECT'
+        context.user_data['bot_uname'] = 'Auto-Detect'
+        bot_name = context.user_data.get('new_bot_name') or context.user_data.get('bot_name', 'My Bot')
+
+        header = make_header_card("ᴄ ᴜ s ᴛ ᴏ ᴍ  ʙ ᴏ ᴛ  ʜ ᴏ s ᴛ ɪ ɴ ɢ", "Step 3 of 3: Source Code Provisioning")
+        safe_bot_name = html.escape(bot_name)
+
+        text = (
+            f"{header}\n\n"
+            f"<blockquote>Target Bot: <b>{safe_bot_name}</b> (<code>Token: Auto-Detect</code>)</blockquote>\n\n"
+            "<b>📤 Provide Python Source Code:</b>\n"
+            "<blockquote><b>Option 1:</b> Upload your Python script as a <code>.py</code> document.\n"
+            "<b>Option 2:</b> Paste your Python code directly in chat.\n\n"
+            "🔍 <i>Our engine will automatically extract and validate your bot token from the script.</i></blockquote>\n\n"
+            "👇 <i>Send the script file or text, or tap <b>❌ Cancel</b> to abort:</i>"
+        )
+        await update.message.reply_text(text, reply_markup=get_cancel_keyboard(), parse_mode="HTML")
+        return CODE
+
     token = sanitize_token(raw_token)
 
     if token == BOT_TOKEN:
         await update.message.reply_text(
             "<blockquote>⚠️ <b>Invalid Token:</b> You cannot host a bot using this platform's own bot token. "
             "Create a new bot with @BotFather and send its token:</blockquote>",
-            reply_markup=get_cancel_keyboard(),
+            reply_markup=get_token_input_keyboard(),
             parse_mode="HTML"
         )
         return TOKEN
@@ -1059,14 +1101,15 @@ async def host_bot_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"<blockquote>⚠️ <b>Token Validation Failed:</b>\n{html.escape(err_msg)}\n\n"
             "Please copy and paste a valid Bot Token from @BotFather:</blockquote>",
-            reply_markup=get_cancel_keyboard(),
+            reply_markup=get_token_input_keyboard(),
             parse_mode="HTML"
         )
         return TOKEN
 
+    context.user_data['bot_token'] = token
     context.user_data['new_bot_token'] = token
     context.user_data['bot_uname'] = bot_uname
-    bot_name = context.user_data.get('new_bot_name', 'My Bot')
+    bot_name = context.user_data.get('new_bot_name') or context.user_data.get('bot_name', 'My Bot')
 
     header = make_header_card("ᴄ ᴜ s ᴛ ᴏ ᴍ  ʙ ᴏ ᴛ  ʜ ᴏ s ᴛ ɪ ɴ ɢ", "Step 3 of 3: Source Code Provisioning")
     safe_bot_name = html.escape(bot_name)
@@ -1092,30 +1135,34 @@ async def host_bot_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
 
-    user_id = update.effective_user.id
-    bot_name = context.user_data.get('new_bot_name', 'My Bot')
-    bot_token = context.user_data.get('new_bot_token', '')
+    raw_text = update.message.text.strip() if (update.message and update.message.text) else ""
+    if is_cancellation_text(raw_text):
+        return await cancel_host(update, context)
 
-    bot_id = str(uuid.uuid4())[:8]
-    bot_dir = os.path.join(DATA_DIR, "bots", f"{user_id}_{bot_id}")
-    os.makedirs(bot_dir, exist_ok=True)
-    script_path = os.path.join(bot_dir, "main.py")
-
+    code_content = None
     if update.message.document:
         doc = update.message.document
-        if not doc.file_name.endswith(".py"):
+        if not doc.file_name or not doc.file_name.endswith(".py"):
             await update.message.reply_text(
                 "<blockquote>⚠️ <b>Invalid File:</b> Please upload a valid Python script ending in <code>.py</code>.</blockquote>",
                 reply_markup=get_cancel_keyboard(),
                 parse_mode="HTML"
             )
             return CODE
-        file = await doc.get_file()
-        await file.download_to_drive(custom_path=script_path)
+        try:
+            file = await doc.get_file()
+            file_bytes = await file.download_as_bytearray()
+            code_content = file_bytes.decode("utf-8", errors="replace")
+        except Exception as e:
+            logger.error(f"Error downloading script document: {e}")
+            await update.message.reply_text(
+                f"<blockquote>⚠️ <b>File Download Error:</b> Could not read uploaded file: {html.escape(str(e))}</blockquote>",
+                reply_markup=get_cancel_keyboard(),
+                parse_mode="HTML"
+            )
+            return CODE
     elif update.message.text:
         code_content = update.message.text
-        with open(script_path, "w", encoding="utf-8") as f:
-            f.write(code_content)
     else:
         await update.message.reply_text(
             "<blockquote>⚠️ <b>Invalid Input:</b> Please send either a <code>.py</code> document or paste python code text.</blockquote>",
@@ -1124,29 +1171,148 @@ async def host_bot_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return CODE
 
-    database.create_hosted_bot(bot_id, user_id, bot_name, bot_token, script_path)
+    # Validate Python Syntax via AST
+    valid, err_msg, lineno, line_text = validate_python_syntax(code_content)
+    if not valid:
+        header = make_header_card("s ʏ ɴ ᴛ ᴀ x  ᴇ ʀ ʀ ᴏ ʀ  ᴅ ᴇ ᴛ ᴇ ᴄ ᴛ ᴇ ᴅ", "Code Validation Failed")
+        line_info = f"• <b>Line:</b> <code>{lineno}</code>\n" if lineno else ""
+        code_snippet = f"\n<b>Error Snippet:</b>\n<pre><code class=\"language-python\">{html.escape(line_text)}</code></pre>" if line_text else ""
+        safe_err = html.escape(err_msg or "Syntax error in Python script.")
+        err_card = (
+            f"{header}\n\n"
+            "<blockquote>❌ <b>Your Python script contains a syntax error and cannot be executed:</b></blockquote>\n\n"
+            "<b>🔍 Error Diagnostics:</b>\n"
+            f"<blockquote>{line_info}"
+            f"• <b>Description:</b> <code>{safe_err}</code></blockquote>"
+            f"{code_snippet}\n\n"
+            "👇 <i>Please fix the syntax error and re-upload your <code>.py</code> file or paste corrected code below:</i>"
+        )
+        await update.message.reply_text(err_card, reply_markup=get_cancel_keyboard(), parse_mode="HTML")
+        return CODE
+
+    user_id = update.effective_user.id
+    bot_name = context.user_data.get('new_bot_name') or context.user_data.get('bot_name', 'My Bot')
+    token = context.user_data.get('bot_token') or context.user_data.get('new_bot_token', '')
+
+    # Handle AUTO_DETECT token extraction
+    if token == 'AUTO_DETECT':
+        detected_token = extract_token_from_code(code_content)
+        if not detected_token:
+            header = make_header_card("ɴ ᴏ  ᴛ ᴏ ᴋ ᴇ ɴ  ᴅ ᴇ ᴛ ᴇ ᴄ ᴛ ᴇ ᴅ", "Token Required")
+            prompt_text = (
+                f"{header}\n\n"
+                "<blockquote>⚠️ <b>Auto-Detection Failed:</b> We could not detect any Telegram bot token in your script.</blockquote>\n\n"
+                "<blockquote>Please send your bot API token obtained from @BotFather manually:</blockquote>\n\n"
+                "👇 <i>Send your token as text or tap <b>❌ Cancel</b>:</i>"
+            )
+            await update.message.reply_text(prompt_text, reply_markup=get_cancel_keyboard(), parse_mode="HTML")
+            return TOKEN
+
+        if detected_token == BOT_TOKEN:
+            await update.message.reply_text(
+                "<blockquote>⚠️ <b>Invalid Token Detected:</b> The token found in your script matches this platform's own bot token. "
+                "Please use a distinct bot token from @BotFather:</blockquote>",
+                reply_markup=get_cancel_keyboard(),
+                parse_mode="HTML"
+            )
+            return CODE
+
+        is_valid, bot_uname, v_err = await verify_telegram_token(detected_token)
+        if not is_valid:
+            header = make_header_card("ᴛ ᴏ ᴋ ᴇ ɴ  ᴠ ᴀ ʟ ɪ ᴅ ᴀ ᴛ ɪ ᴏ ɴ  ғ ᴀ ɪ ʟ ᴇ ᴅ", "Auto-Detected Token Error")
+            safe_verr = html.escape(v_err or "Telegram rejected token.")
+            token_preview = html.escape(detected_token[:10] + "..." if len(detected_token) > 10 else detected_token)
+            err_card = (
+                f"{header}\n\n"
+                f"<blockquote>⚠️ A token was detected in your code (<code>{token_preview}</code>), "
+                f"but Telegram validation failed:\n<code>{safe_verr}</code></blockquote>\n\n"
+                "👇 <i>Please update your script with a valid token or send the token manually:</i>"
+            )
+            await update.message.reply_text(err_card, reply_markup=get_cancel_keyboard(), parse_mode="HTML")
+            return CODE
+
+        token = detected_token
+        context.user_data['bot_token'] = token
+        context.user_data['new_bot_token'] = token
+        context.user_data['bot_uname'] = bot_uname
+
+    bot_id = str(uuid.uuid4())[:8]
+    bot_dir = os.path.join(DATA_DIR, "bots", f"{user_id}_{bot_id}")
+    os.makedirs(bot_dir, exist_ok=True)
+    script_path = os.path.join(bot_dir, "main.py")
+
+    with open(script_path, "w", encoding="utf-8") as f:
+        f.write(code_content)
+
+    database.create_hosted_bot(bot_id, user_id, bot_name, token, script_path)
 
     status_msg = await update.message.reply_text("⚙️ <i>Provisioning container environment and starting bot...</i>", parse_mode="HTML")
     success, msg = await bot_manager.start_bot(bot_id)
+
+    if success:
+        await asyncio.sleep(1.5)
+        if not bot_manager.is_running(bot_id):
+            success = False
+            msg = "Bot process crashed or exited immediately after launch."
+
     context.user_data.clear()
 
-    bot_status = "RUNNING" if success else "FAILED"
-    status_badge = get_status_badge(bot_status)
-    header = make_header_card("ʙ ᴏ ᴛ  ᴅ ᴇ ᴘ ʟ ᴏ ʏ ᴇ ᴅ !", "Instance Live on Cloud")
-    safe_bot_name = html.escape(bot_name)
-    safe_msg = html.escape(msg)
+    if success:
+        bot_data = database.get_bot(bot_id) or {}
+        token_masked = f"{token[:10]}...{token[-4:]}" if len(token) > 14 else "••••••••"
+        created_str = (bot_data.get('created_at') or "N/A")[:19].replace('T', ' ')
+        proc = bot_manager.active_processes.get(bot_id)
+        pid_str = str(proc.pid) if (proc and proc.returncode is None) else "Active"
 
-    resp_text = (
-        f"{header}\n\n"
-        "<blockquote>🎉 <b>Congratulations!</b> Your custom bot has been provisioned and started in an isolated cloud container.</blockquote>\n\n"
-        "<b>📊 Instance Details:</b>\n"
-        f"<blockquote>• <b>Bot Name:</b> <b>{safe_bot_name}</b>\n"
-        f"• <b>Bot ID:</b> <code>#{html.escape(bot_id)}</code>\n"
-        f"• <b>Status:</b> {status_badge}\n"
-        f"• <b>Diagnostics:</b> {safe_msg}</blockquote>\n\n"
-        "<blockquote>💡 <i>You can monitor live logs, restart, or manage this bot from the menu below.</i></blockquote>"
-    )
-    await status_msg.reply_text(resp_text, reply_markup=get_bot_detail_reply_keyboard(bot_id, bot_status), parse_mode="HTML")
+        header = make_header_card("ʙ ᴏ ᴛ  ɪ ɴ s ᴘ ᴇ ᴄ ᴛ ᴏ ʀ", "Instance Live & Active")
+        safe_bot_name = html.escape(bot_name)
+        safe_msg = html.escape(msg)
+
+        resp_text = (
+            f"{header}\n\n"
+            "<blockquote>🎉 <b>Success!</b> Your custom bot has been provisioned and started in an isolated cloud container.</blockquote>\n\n"
+            "<b>🤖 Instance Overview:</b>\n"
+            f"<blockquote>• <b>Name:</b> <b>{safe_bot_name}</b>\n"
+            f"• <b>Bot ID:</b> <code>#{html.escape(bot_id)}</code>\n"
+            "• <b>Status:</b> 🟢 <code>RUNNING</code>\n"
+            f"• <b>PID:</b> <code>{html.escape(pid_str)}</code>\n"
+            "• <b>Uptime:</b> <code>Just started</code></blockquote>\n\n"
+            "<b>⚙️ Configuration & Metadata:</b>\n"
+            f"<blockquote>• <b>API Token:</b> <code>{html.escape(token_masked)}</code>\n"
+            "• <b>Auto-Restart:</b> <code>Enabled (Watchdog Active)</code>\n"
+            f"• <b>Created:</b> <code>{html.escape(created_str)}</code></blockquote>\n\n"
+            "<blockquote>💡 <i>You can monitor live logs, restart, or manage this bot from the menu below.</i></blockquote>"
+        )
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+        await update.message.reply_text(resp_text, reply_markup=get_bot_detail_reply_keyboard(bot_id, "RUNNING"), parse_mode="HTML")
+    else:
+        header = make_header_card("s ᴛ ᴀ ʀ ᴛ ᴜ ᴘ  ғ ᴀ ɪ ʟ ᴜ ʀ ᴇ", "Instance Error Detected")
+        logs = bot_manager.get_logs(bot_id, lines=25)
+        if not logs or "No console logs" in logs:
+            logs = msg
+        safe_logs = html.escape(logs[-3500:])
+        safe_bot_name = html.escape(bot_name)
+        safe_msg = html.escape(msg)
+
+        resp_text = (
+            f"{header}\n\n"
+            f"<blockquote>🔴 <b>Startup Failure:</b> Bot <b>{safe_bot_name}</b> (<code>#{html.escape(bot_id)}</code>) failed to start.</blockquote>\n\n"
+            "<b>⚠️ Error Summary:</b>\n"
+            f"<blockquote>• <b>Reason:</b> <code>{safe_msg}</code>\n"
+            "• <b>Status:</b> 🔴 <code>FAILED</code></blockquote>\n\n"
+            "<b>📜 Console Traceback / Error Logs:</b>\n"
+            f"<pre><code class=\"language-log\">{safe_logs}</code></pre>\n\n"
+            "<blockquote>💡 <i>Inspect the error traceback above. You can fix the code and deploy again, or manage this bot below:</i></blockquote>"
+        )
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+        await update.message.reply_text(resp_text, reply_markup=get_bot_detail_reply_keyboard(bot_id, "FAILED"), parse_mode="HTML")
+
     return ConversationHandler.END
 
 async def cancel_host(update: Update, context: ContextTypes.DEFAULT_TYPE):
