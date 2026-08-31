@@ -16,6 +16,7 @@ from telegram.ext import (
 from config import ADMIN_ID, DATA_DIR
 import database
 from bot_manager import bot_manager
+from code_analyzer import is_cancellation_text
 
 logger = logging.getLogger("GravixHost.Admin")
 
@@ -160,16 +161,16 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     running_bots = sum(1 for b in bots if b.get('status') == 'RUNNING')
 
     text = (
-        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
-        "│  👑 <b>ɢʀᴀᴠɪx-ʜᴏsᴛ ᴄᴇɴᴛʀᴀʟ ᴀᴅᴍɪɴ</b>\n"
-        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        "<b>👑 GRAVIX-HOST CENTRAL ADMIN</b>\n"
+        "<i>Platform Management & Telemetry</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "<blockquote>"
         f"👑 <b>Master Admin ID:</b> <code>{user_id}</code>\n"
         f"⚙️ <b>Maintenance Mode:</b> <code>{maint_status}</code>\n"
         f"👥 <b>Registered Users:</b> <code>{len(users)}</code>\n"
         f"🤖 <b>Platform Bots:</b> <code>{running_bots} Active / {len(bots)} Total</code>"
         "</blockquote>\n\n"
-        "⚡ <b>ᴄᴏɴᴛʀᴏʟ ᴘᴀɴᴇʟ ɴᴀᴠɪɢᴀᴛɪᴏɴ</b>\n"
+        "⚡ <b>Control Panel Navigation</b>\n"
         "Select an administrative module from the keyboard menu below to inspect infrastructure, govern users, or manage child bot processes."
     )
     reply_markup = get_admin_reply_keyboard(maint_status)
@@ -203,17 +204,17 @@ async def admin_stats_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     disk_total_gb = disk.total // (1024 * 1024 * 1024)
 
     text = (
-        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
-        "│  📊 <b>sʏsᴛᴇᴍ ᴛᴇʟᴇᴍᴇᴛʀʏ &amp; ᴍᴇᴛʀɪᴄs</b>\n"
-        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        "<b>📊 SYSTEM TELEMETRY &amp; METRICS</b>\n"
+        "<i>Real-time Platform Infrastructure Status</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "<blockquote>"
-        "📊 <b>ᴘʟᴀᴛғᴏʀᴍ ᴏᴠᴇʀᴠɪᴇᴡ</b>\n"
+        "📊 <b>Platform Overview</b>\n"
         f"👥 <b>Total Users:</b> <code>{len(users)}</code>\n"
         f"🤖 <b>Total Hosted Bots:</b> <code>{len(bots)}</code>\n"
         f"   ├ 🟢 Active: <code>{running_bots}</code>\n"
         f"   ├ ⚪ Stopped: <code>{stopped_bots}</code>\n"
         f"   └ 🔴 Failed/Crashed: <code>{failed_bots}</code>\n\n"
-        "🖥️ <b>ʜᴏsᴛ sᴇʀᴠᴇʀ ʀᴇsᴏᴜʀᴄᴇs</b>\n"
+        "🖥️ <b>Host Server Resources</b>\n"
         f"⚡ <b>CPU Load:</b> <code>{cpu_bar} {cpu_percent}%</code>\n"
         f"💾 <b>RAM Usage:</b> <code>{ram_bar} {mem.percent}%</code>\n"
         f"   └ <code>{ram_used_mb} MB / {ram_total_mb} MB</code>\n"
@@ -239,9 +240,9 @@ async def admin_users_list_handler(update: Update, context: ContextTypes.DEFAULT
     curr_users = users[curr_page * per_page : (curr_page + 1) * per_page]
 
     text = (
-        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
-        f"│  👥 <b>ᴜsᴇʀ ᴅɪʀᴇᴄᴛᴏʀʏ (Page {curr_page + 1}/{total_pages})</b>\n"
-        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        f"<b>👥 USER DIRECTORY</b> (Page {curr_page + 1}/{total_pages})\n"
+        "<i>Platform User Database & Privilege Controls</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
     )
 
     if not users:
@@ -295,9 +296,9 @@ async def admin_user_detail_handler(update: Update, context: ContextTypes.DEFAUL
     username_str = f"@{html.escape(target_user['username'])}" if target_user.get('username') else "<i>None</i>"
 
     text = (
-        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
-        "│  👤 <b>ᴜsᴇʀ ᴘʀᴏғɪʟᴇ ɪɴsᴘᴇᴄᴛᴏʀ</b>\n"
-        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        "<b>👤 USER PROFILE INSPECTOR</b>\n"
+        f"<i>Account Details & Quota for UID {target_user['user_id']}</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "<blockquote>"
         f"🆔 <b>User ID:</b> <code>{target_user['user_id']}</code>\n"
         f"👤 <b>Name:</b> <b>{html.escape(str(display_name))}</b>\n"
@@ -307,7 +308,7 @@ async def admin_user_detail_handler(update: Update, context: ContextTypes.DEFAUL
         f"🤖 <b>Hosted Instances:</b> <code>{len(user_bots)}</code> (<code>{running_count}</code> Active)\n"
         f"📅 <b>Registration Date:</b> <code>{html.escape(str(target_user.get('joined_at', 'N/A')))}</code>"
         "</blockquote>\n\n"
-        "⚡ <b>ᴀᴄᴄᴏᴜɴᴛ ᴀᴄᴛɪᴏɴs</b>\n"
+        "⚡ <b>Account Actions</b>\n"
         "Use the keyboard options below to toggle account access or grant additional slot capacity."
     )
     reply_markup = get_admin_user_detail_keyboard(user_id, is_banned)
@@ -345,12 +346,12 @@ async def admin_user_action_handler(update: Update, context: ContextTypes.DEFAUL
                 await bot_manager.stop_bot(b['bot_id'])
             await _send_admin_msg(
                 update,
-                f"🚫 <b>ᴜsᴇʀ ʙᴀɴɴᴇᴅ</b>\nUser <code>{target_uid}</code> has been banned. All active child subprocesses terminated."
+                f"🚫 <b>USER BANNED</b>\nUser <code>{target_uid}</code> has been banned. All active child subprocesses terminated."
             )
         else:
             await _send_admin_msg(
                 update,
-                f"🔓 <b>ᴜsᴇʀ ᴜɴʙᴀɴɴᴇᴅ</b>\nUser <code>{target_uid}</code> has been restored to active status."
+                f"🔓 <b>USER UNBANNED</b>\nUser <code>{target_uid}</code> has been restored to active status."
             )
 
     elif action == "inc_slots":
@@ -358,7 +359,7 @@ async def admin_user_action_handler(update: Update, context: ContextTypes.DEFAUL
         database.set_user_slots(target_uid, new_slots)
         await _send_admin_msg(
             update,
-            f"➕ <b>sʟᴏᴛs ᴜᴘɢʀᴀᴅᴇᴅ</b>\nHosting capacity increased to <code>{new_slots}</code> bots for User <code>{target_uid}</code>."
+            f"➕ <b>SLOTS UPGRADED</b>\nHosting capacity increased to <code>{new_slots}</code> bots for User <code>{target_uid}</code>."
         )
 
     await admin_user_detail_handler(update, context, target_uid)
@@ -377,9 +378,9 @@ async def admin_bots_list_handler(update: Update, context: ContextTypes.DEFAULT_
     curr_bots = all_bots[curr_page * per_page : (curr_page + 1) * per_page]
 
     text = (
-        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
-        f"│  🤖 <b>ᴀʟʟ ᴘʟᴀᴛғᴏʀᴍ ʙᴏᴛs (Page {curr_page + 1}/{total_pages})</b>\n"
-        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        f"<b>🤖 ALL PLATFORM BOTS</b> (Page {curr_page + 1}/{total_pages})\n"
+        "<i>Active Subprocesses & Instance Registry</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
     )
 
     if not all_bots:
@@ -432,9 +433,9 @@ async def admin_bot_detail_handler(update: Update, context: ContextTypes.DEFAULT
     created_at = bot_data.get('created_at', 'N/A')
 
     text = (
-        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
-        "│  ⚙️ <b>ᴘʟᴀᴛғᴏʀᴍ ʙᴏᴛ ɪɴsᴘᴇᴄᴛᴏʀ</b>\n"
-        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        "<b>⚙️ PLATFORM BOT INSPECTOR</b>\n"
+        "<i>Instance Diagnostics & Process Control</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "<blockquote>"
         f"🤖 <b>Bot Name:</b> <b>{html.escape(bot_data.get('bot_name', 'Unnamed Bot'))}</b>\n"
         f"🆔 <b>Bot ID:</b> <code>#{html.escape(bot_id)}</code>\n"
@@ -444,7 +445,7 @@ async def admin_bot_detail_handler(update: Update, context: ContextTypes.DEFAULT
         f"📁 <b>Script Path:</b> <code>{html.escape(script_path)}</code>\n"
         f"🕒 <b>Provisioned:</b> <code>{html.escape(str(created_at))}</code>"
         "</blockquote>\n\n"
-        "⚡ <b>ᴘʀᴏᴄᴇss ᴄᴏɴᴛʀᴏʟ</b>\n"
+        "⚡ <b>Process Control</b>\n"
         "Select a command below to start, stop, restart, stream execution logs, or force delete."
     )
     reply_markup = get_admin_bot_detail_keyboard(bot_id, status)
@@ -481,34 +482,34 @@ async def admin_bot_action_handler(update: Update, context: ContextTypes.DEFAULT
     if action == "start":
         success, msg = await bot_manager.start_bot(bot_id)
         if success:
-            await _send_admin_msg(update, f"✅ <b>ᴘʀᴏᴄᴇss sᴛᴀʀᴛᴇᴅ</b>\n<code>{html.escape(msg)}</code>")
+            await _send_admin_msg(update, f"✅ <b>PROCESS STARTED</b>\n<code>{html.escape(msg)}</code>")
         else:
-            await _send_admin_msg(update, f"❌ <b>sᴛᴀʀᴛ ғᴀɪʟᴇᴅ</b>\n<code>{html.escape(msg)}</code>")
+            await _send_admin_msg(update, f"❌ <b>START FAILED</b>\n<code>{html.escape(msg)}</code>")
         await admin_bot_detail_handler(update, context, bot_id)
 
     elif action == "stop":
         success, msg = await bot_manager.stop_bot(bot_id)
         if success:
-            await _send_admin_msg(update, f"⏹️ <b>ᴘʀᴏᴄᴇss sᴛᴏᴘᴘᴇᴅ</b>\n<code>{html.escape(msg)}</code>")
+            await _send_admin_msg(update, f"⏹️ <b>PROCESS STOPPED</b>\n<code>{html.escape(msg)}</code>")
         else:
-            await _send_admin_msg(update, f"❌ <b>sᴛᴏᴘ ғᴀɪʟᴇᴅ</b>\n<code>{html.escape(msg)}</code>")
+            await _send_admin_msg(update, f"❌ <b>STOP FAILED</b>\n<code>{html.escape(msg)}</code>")
         await admin_bot_detail_handler(update, context, bot_id)
 
     elif action == "restart":
         success, msg = await bot_manager.restart_bot(bot_id)
         if success:
-            await _send_admin_msg(update, f"🔄 <b>ᴘʀᴏᴄᴇss ʀᴇsᴛᴀʀᴛᴇᴅ</b>\n<code>{html.escape(msg)}</code>")
+            await _send_admin_msg(update, f"🔄 <b>PROCESS RESTARTED</b>\n<code>{html.escape(msg)}</code>")
         else:
-            await _send_admin_msg(update, f"❌ <b>ʀᴇsᴛᴀʀᴛ ғᴀɪʟᴇᴅ</b>\n<code>{html.escape(msg)}</code>")
+            await _send_admin_msg(update, f"❌ <b>RESTART FAILED</b>\n<code>{html.escape(msg)}</code>")
         await admin_bot_detail_handler(update, context, bot_id)
 
     elif action == "logs":
         logs = bot_manager.get_logs(bot_id, lines=30)
         log_snippet = logs[-3500:] if logs else "No execution logs recorded yet."
         text = (
-            "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
-            "│  📜 <b>ʙᴏᴛ ᴇxᴇᴄᴜᴛɪᴏɴ ʟᴏɢs</b>\n"
-            "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+            "<b>📜 BOT EXECUTION LOGS</b>\n"
+            f"<i>Live Subprocess Output for #{html.escape(bot_id)}</i>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"🤖 <b>Target Bot:</b> <code>#{html.escape(bot_id)}</code>\n\n"
             f"<pre><code>{html.escape(log_snippet)}</code></pre>"
         )
@@ -528,7 +529,7 @@ async def admin_bot_action_handler(update: Update, context: ContextTypes.DEFAULT
         database.delete_bot_record(bot_id)
         await _send_admin_msg(
             update,
-            f"🗑️ <b>ʙᴏᴛ ᴘᴇʀᴍᴀɴᴇɴᴛʟʏ ᴅᴇʟᴇᴛᴇᴅ</b>\nBot instance <code>#{html.escape(bot_id)}</code> and disk assets have been purged."
+            f"🗑️ <b>BOT PERMANENTLY DELETED</b>\nBot instance <code>#{html.escape(bot_id)}</code> and disk assets have been purged."
         )
         await admin_bots_list_handler(update, context, 0)
 
@@ -546,9 +547,9 @@ async def admin_fsub_list_handler(update: Update, context: ContextTypes.DEFAULT_
     curr_channels = channels[curr_page * per_page : (curr_page + 1) * per_page]
 
     text = (
-        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
-        f"│  📢 <b>ғᴏʀᴄᴇ-sᴜʙ ᴄʜᴀɴɴᴇʟs (Page {curr_page + 1}/{total_pages})</b>\n"
-        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        f"<b>📢 FORCE-SUB CHANNELS</b> (Page {curr_page + 1}/{total_pages})\n"
+        "<i>Mandatory Subscription Membership Gateways</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
     )
 
     if not channels:
@@ -586,7 +587,7 @@ async def admin_fsub_del_handler(update: Update, context: ContextTypes.DEFAULT_T
         database.delete_required_channel(channel_id)
         await _send_admin_msg(
             update,
-            f"✅ <b>ᴄʜᴀɴɴᴇʟ ʀᴇᴍᴏᴠᴇᴅ</b>\nForce-Sub Channel <code>{html.escape(channel_id)}</code> has been deleted successfully."
+            f"✅ <b>CHANNEL REMOVED</b>\nForce-Sub Channel <code>{html.escape(channel_id)}</code> has been deleted successfully."
         )
 
     await admin_fsub_list_handler(update, context, 0)
@@ -604,7 +605,7 @@ async def admin_toggle_maint_handler(update: Update, context: ContextTypes.DEFAU
     status_str = "ENABLED (🔴 ON)" if new_val == "1" else "DISABLED (🟢 OFF)"
     await _send_admin_msg(
         update,
-        f"⚙️ <b>ᴍᴀɪɴᴛᴇɴᴀɴᴄᴇ ᴍᴏᴅᴇ ᴜᴘᴅᴀᴛᴇᴅ</b>\nPlatform maintenance status is now <code>{status_str}</code>."
+        f"⚙️ <b>MAINTENANCE MODE UPDATED</b>\nPlatform maintenance status is now <code>{status_str}</code>."
     )
     await admin_panel(update, context)
 
@@ -615,9 +616,9 @@ async def admin_broadcast_prompt_handler(update: Update, context: ContextTypes.D
         return
 
     text = (
-        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
-        "│  📢 <b>ɢʟᴏʙᴀʟ ʙʀᴏᴀᴅᴄᴀsᴛ</b>\n"
-        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        "<b>📢 GLOBAL BROADCAST</b>\n"
+        "<i>Platform-Wide Announcement Dispatcher</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "<blockquote>"
         "To broadcast an announcement to all registered users, send the command:\n\n"
         "<code>/broadcast Your message content here...</code>\n\n"
@@ -637,9 +638,9 @@ async def admin_exit_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         reply_kb = ReplyKeyboardMarkup([[KeyboardButton("🤖 My Hosted Bots"), KeyboardButton("➕ Host New Bot")]], resize_keyboard=True)
 
     text = (
-        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
-        "│  🏠 <b>ᴇxɪᴛᴇᴅ ᴀᴅᴍɪɴ ᴄᴏɴsᴏʟᴇ</b>\n"
-        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        "<b>🏠 EXITED ADMIN CONSOLE</b>\n"
+        "<i>Returned to User Dashboard</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "Returned to user dashboard."
     )
     await _send_admin_msg(update, text, reply_markup=reply_kb)
@@ -663,9 +664,9 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     progress_msg = await update.message.reply_text(f"⏳ <b>Broadcasting to <code>{total}</code> users...</b>", parse_mode="HTML")
 
     formatted_msg = (
-        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
-        "│  📢 <b>ɢʀᴀᴠɪx-ʜᴏsᴛ ᴀɴɴᴏᴜɴᴄᴇᴍᴇɴᴛ</b>\n"
-        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        "<b>📢 GRAVIX-HOST ANNOUNCEMENT</b>\n"
+        "<i>Official Platform Update</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"<blockquote>{html.escape(broadcast_text)}</blockquote>"
     )
 
@@ -681,9 +682,9 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             failed += 1
 
     await progress_msg.edit_text(
-        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
-        "│  ✅ <b>ʙʀᴏᴀᴅᴄᴀsᴛ ᴄᴏᴍᴘʟᴇᴛɪᴏɴ ʀᴇᴘᴏʀᴛ</b>\n"
-        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        "<b>✅ BROADCAST COMPLETION REPORT</b>\n"
+        "<i>Global Announcement Delivery Telemetry</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "<blockquote>"
         f"👥 <b>Target Users:</b> <code>{total}</code>\n"
         f"✔️ <b>Successfully Delivered:</b> <code>{success}</code>\n"
@@ -707,9 +708,9 @@ async def admin_fsub_add_start(update: Update, context: ContextTypes.DEFAULT_TYP
 
     context.user_data['active_flow'] = 'fsub_add'
     text = (
-        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
-        "│  ➕ <b>ᴀᴅᴅ ғᴏʀᴄᴇ-sᴜʙ ᴄʜᴀɴɴᴇʟ (1/3)</b>\n"
-        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        "<b>➕ ADD FORCE-SUB CHANNEL (1/3)</b>\n"
+        "<i>Step 1 of 3: Channel ID or Handle</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "<blockquote>"
         "Please send the <b>Telegram Channel ID / Public Handle</b>:\n\n"
         "• Public Channel: <code>@ChannelUsername</code>\n"
@@ -722,11 +723,20 @@ async def admin_fsub_add_start(update: Update, context: ContextTypes.DEFAULT_TYP
     return A_FSUB_ID
 
 async def admin_fsub_get_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip() if (update.message and update.message.text) else ""
+    if is_cancellation_text(text):
+        context.user_data.pop('fsub_channel_id', None)
+        context.user_data.pop('fsub_title', None)
+        context.user_data.pop('active_flow', None)
+        if not await handle_admin_text(update, context):
+            await admin_panel(update, context)
+        return ConversationHandler.END
+
     if context.user_data.get('active_flow') != 'fsub_add':
         await update.message.reply_text("⚠️ <i>This session expired. Please use /admin to start again.</i>", parse_mode="HTML")
         return ConversationHandler.END
 
-    raw_id = update.message.text.strip()
+    raw_id = text
     is_valid = False
     if raw_id.startswith("@") and len(raw_id) >= 4 and re.match(r"^@[a-zA-Z0-9_]+$", raw_id):
         is_valid = True
@@ -734,23 +744,23 @@ async def admin_fsub_get_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         is_valid = True
 
     if not is_valid:
-        text = (
-            "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
-            "│  ⚠️ <b>ɪɴᴠᴀʟɪᴅ ᴄʜᴀɴɴᴇʟ ɪᴅ ғᴏʀᴍᴀᴛ</b>\n"
-            "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        text_resp = (
+            "<b>⚠️ INVALID CHANNEL ID FORMAT</b>\n"
+            "<i>Verification Failed</i>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n\n"
             "<blockquote>"
             "Please provide a valid public handle (e.g. <code>@GravixRDP</code>) or numeric private channel ID (e.g. <code>-1001234567890</code>)."
             "</blockquote>\n\n"
             "<i>(Send Channel ID or tap ❌ Cancel to abort)</i>"
         )
-        await update.message.reply_text(text, reply_markup=FSUB_CANCEL_KEYBOARD, parse_mode="HTML")
+        await update.message.reply_text(text_resp, reply_markup=FSUB_CANCEL_KEYBOARD, parse_mode="HTML")
         return A_FSUB_ID
 
     context.user_data['fsub_channel_id'] = raw_id
-    text = (
-        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
-        "│  ➕ <b>ᴀᴅᴅ ғᴏʀᴄᴇ-sᴜʙ ᴄʜᴀɴɴᴇʟ (2/3)</b>\n"
-        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+    text_resp = (
+        "<b>➕ ADD FORCE-SUB CHANNEL (2/3)</b>\n"
+        "<i>Step 2 of 3: Channel Title</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "<blockquote>"
         f"Channel ID: <code>{html.escape(raw_id)}</code>\n\n"
         "Please send a display <b>Title</b> for this channel:\n"
@@ -758,34 +768,43 @@ async def admin_fsub_get_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "</blockquote>\n\n"
         "<i>(Send Title or tap ❌ Cancel to abort)</i>"
     )
-    await update.message.reply_text(text, reply_markup=FSUB_CANCEL_KEYBOARD, parse_mode="HTML")
+    await update.message.reply_text(text_resp, reply_markup=FSUB_CANCEL_KEYBOARD, parse_mode="HTML")
     return A_FSUB_TITLE
 
 async def admin_fsub_get_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip() if (update.message and update.message.text) else ""
+    if is_cancellation_text(text):
+        context.user_data.pop('fsub_channel_id', None)
+        context.user_data.pop('fsub_title', None)
+        context.user_data.pop('active_flow', None)
+        if not await handle_admin_text(update, context):
+            await admin_panel(update, context)
+        return ConversationHandler.END
+
     if context.user_data.get('active_flow') != 'fsub_add':
         await update.message.reply_text("⚠️ <i>This session expired. Please use /admin to start again.</i>", parse_mode="HTML")
         return ConversationHandler.END
 
-    title = update.message.text.strip()
+    title = text
     if not title or len(title) < 2 or len(title) > 64:
-        text = (
-            "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
-            "│  ⚠️ <b>ɪɴᴠᴀʟɪᴅ ᴛɪᴛʟᴇ ʟᴇɴɢᴛʜ</b>\n"
-            "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        text_resp = (
+            "<b>⚠️ INVALID TITLE LENGTH</b>\n"
+            "<i>Verification Failed</i>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n\n"
             "<blockquote>"
             "Please enter a channel title between 2 and 64 characters."
             "</blockquote>\n\n"
             "<i>(Send Title or tap ❌ Cancel to abort)</i>"
         )
-        await update.message.reply_text(text, reply_markup=FSUB_CANCEL_KEYBOARD, parse_mode="HTML")
+        await update.message.reply_text(text_resp, reply_markup=FSUB_CANCEL_KEYBOARD, parse_mode="HTML")
         return A_FSUB_TITLE
 
     context.user_data['fsub_title'] = title
     cid = context.user_data.get('fsub_channel_id', '')
-    text = (
-        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
-        "│  ➕ <b>ᴀᴅᴅ ғᴏʀᴄᴇ-sᴜʙ ᴄʜᴀɴɴᴇʟ (3/3)</b>\n"
-        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+    text_resp = (
+        "<b>➕ ADD FORCE-SUB CHANNEL (3/3)</b>\n"
+        "<i>Step 3 of 3: Channel Invite Link</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "<blockquote>"
         f"Channel ID: <code>{html.escape(cid)}</code>\n"
         f"Title: <b>{html.escape(title)}</b>\n\n"
@@ -794,26 +813,35 @@ async def admin_fsub_get_title(update: Update, context: ContextTypes.DEFAULT_TYP
         "</blockquote>\n\n"
         "<i>(Send Link or tap ❌ Cancel to abort)</i>"
     )
-    await update.message.reply_text(text, reply_markup=FSUB_CANCEL_KEYBOARD, parse_mode="HTML")
+    await update.message.reply_text(text_resp, reply_markup=FSUB_CANCEL_KEYBOARD, parse_mode="HTML")
     return A_FSUB_LINK
 
 async def admin_fsub_get_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip() if (update.message and update.message.text) else ""
+    if is_cancellation_text(text):
+        context.user_data.pop('fsub_channel_id', None)
+        context.user_data.pop('fsub_title', None)
+        context.user_data.pop('active_flow', None)
+        if not await handle_admin_text(update, context):
+            await admin_panel(update, context)
+        return ConversationHandler.END
+
     if context.user_data.get('active_flow') != 'fsub_add':
         await update.message.reply_text("⚠️ <i>This session expired. Please use /admin to start again.</i>", parse_mode="HTML")
         return ConversationHandler.END
 
-    link = update.message.text.strip()
+    link = text
     if not re.match(r"^https?://(t\.me|telegram\.me)/.+$", link):
-        text = (
-            "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
-            "│  ⚠️ <b>ɪɴᴠᴀʟɪᴅ ɪɴᴠɪᴛᴇ ʟɪɴᴋ</b>\n"
-            "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        text_resp = (
+            "<b>⚠️ INVALID INVITE LINK</b>\n"
+            "<i>Verification Failed</i>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n\n"
             "<blockquote>"
             "The invite link must start with <code>https://t.me/...</code>"
             "</blockquote>\n\n"
             "<i>(Send Link or tap ❌ Cancel to abort)</i>"
         )
-        await update.message.reply_text(text, reply_markup=FSUB_CANCEL_KEYBOARD, parse_mode="HTML")
+        await update.message.reply_text(text_resp, reply_markup=FSUB_CANCEL_KEYBOARD, parse_mode="HTML")
         return A_FSUB_LINK
 
     cid = context.user_data.get('fsub_channel_id', '')
@@ -824,10 +852,10 @@ async def admin_fsub_get_link(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data.pop('fsub_title', None)
     context.user_data.pop('active_flow', None)
 
-    text = (
-        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
-        "│  ✅ <b>ᴄʜᴀɴɴᴇʟ ᴀᴅᴅᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ</b>\n"
-        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+    text_resp = (
+        "<b>✅ CHANNEL ADDED SUCCESSFULLY</b>\n"
+        "<i>Mandatory Subscription Updated</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "<blockquote>"
         f"📢 <b>Title:</b> {html.escape(title)}\n"
         f"🆔 <b>Channel ID:</b> <code>{html.escape(cid)}</code>\n"
@@ -837,7 +865,7 @@ async def admin_fsub_get_link(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
     channels = database.get_required_channels()
     reply_markup = get_admin_fsub_reply_keyboard(channels, 0)
-    await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="HTML")
+    await update.message.reply_text(text_resp, reply_markup=reply_markup, parse_mode="HTML")
     return ConversationHandler.END
 
 async def admin_fsub_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -847,13 +875,15 @@ async def admin_fsub_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await _send_admin_msg(
         update,
-        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
-        "│  ❌ <b>ᴀᴅᴅ ᴄʜᴀɴɴᴇʟ ᴄᴀɴᴄᴇʟʟᴇᴅ</b>\n"
-        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        "<b>❌ ADD CHANNEL CANCELLED</b>\n"
+        "<i>Wizard Aborted</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "The channel addition wizard was aborted."
     )
     await admin_fsub_list_handler(update, context, 0)
     return ConversationHandler.END
+
+admin_cancel_filter = filters.Regex(r"(?i)^(❌\s*Cancel|/cancel|cancel|🔙\s*Back to Admin|🏠\s*Back to Admin|🏠\s*Exit Admin)$")
 
 admin_fsub_conv = ConversationHandler(
     entry_points=[
@@ -862,13 +892,13 @@ admin_fsub_conv = ConversationHandler(
         CommandHandler("addchannel", admin_fsub_add_start)
     ],
     states={
-        A_FSUB_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_fsub_get_id)],
-        A_FSUB_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_fsub_get_title)],
-        A_FSUB_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_fsub_get_link)],
+        A_FSUB_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~admin_cancel_filter, admin_fsub_get_id)],
+        A_FSUB_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~admin_cancel_filter, admin_fsub_get_title)],
+        A_FSUB_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~admin_cancel_filter, admin_fsub_get_link)],
     },
     fallbacks=[
         CommandHandler("cancel", admin_fsub_cancel),
-        MessageHandler(filters.Regex("^(❌ Cancel|/cancel|cancel|🔙 Back to Admin)$"), admin_fsub_cancel),
+        MessageHandler(filters.Regex(r"(?i)^(❌\s*Cancel|/cancel|cancel|🔙\s*Back to Admin|🏠\s*Back to Admin|🏠\s*Exit Admin)$"), admin_fsub_cancel),
         CallbackQueryHandler(admin_fsub_cancel, pattern="^(admin_fsub_cancel|admin_panel)$")
     ],
     conversation_timeout=600,

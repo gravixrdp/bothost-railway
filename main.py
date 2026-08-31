@@ -32,7 +32,15 @@ from admin_handlers import (
     handle_admin_callback,
     handle_admin_text,
     broadcast_command,
-    admin_fsub_conv
+    admin_fsub_conv,
+    admin_fsub_add_start,
+    admin_fsub_get_id,
+    admin_fsub_get_title,
+    admin_fsub_get_link,
+    admin_fsub_cancel,
+    A_FSUB_ID,
+    A_FSUB_TITLE,
+    A_FSUB_LINK
 )
 from user_handlers import (
     start_command,
@@ -100,9 +108,7 @@ async def general_message_router(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     nav_card = (
-        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
-        "│  💡 <b>ɢʀᴀᴠɪx-ʜᴏsᴛ ɴᴀᴠɪɢᴀᴛɪᴏɴ</b>\n"
-        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n"
+        "<b>💡 GRAVIX-HOST NAVIGATION</b>\n"
         "<blockquote>Please use the interactive buttons on your keyboard below or send <code>/start</code> to access the main dashboard.</blockquote>"
     )
     await update.message.reply_text(
@@ -141,25 +147,27 @@ def main():
     # Conversation Handlers
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+    cancel_filter = filters.Regex(r"(?i)^(❌\s*Cancel|/cancel|cancel|🔙\s*Back to Main Menu|🏠\s*Main Menu|🔙\s*Back to Admin|🏠\s*Back to Admin|🏠\s*Exit Admin)$")
+
     host_conv = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(host_bot_start, pattern="^user_host_start$"),
             MessageHandler(filters.Regex("^(➕ Host New Bot|➕ Host Custom Bot|➕ Host Another Bot)$"), host_bot_start)
         ],
         states={
-            NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, host_bot_name)],
+            NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~cancel_filter, host_bot_name)],
             TOKEN: [
                 MessageHandler(filters.Regex(r"^(⏩ Skip \(Auto-Detect Token\)|skip)$"), host_bot_token),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, host_bot_token)
+                MessageHandler(filters.TEXT & ~filters.COMMAND & ~cancel_filter, host_bot_token)
             ],
             CODE: [
                 MessageHandler(filters.Document.ALL, host_bot_code),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, host_bot_code)
+                MessageHandler(filters.TEXT & ~filters.COMMAND & ~cancel_filter, host_bot_code)
             ]
         },
         fallbacks=[
             CommandHandler("cancel", cancel_host),
-            MessageHandler(filters.Regex("^(❌ Cancel|/cancel|cancel|🔙 Back to Main Menu)$"), cancel_host),
+            MessageHandler(filters.Regex(r"(?i)^(❌\s*Cancel|/cancel|cancel|🔙\s*Back to Main Menu|🏠\s*Main Menu)$"), cancel_host),
             CallbackQueryHandler(cancel_host, pattern="^(cancel_host|user_menu)$")
         ],
         conversation_timeout=CONV_TIMEOUT,
@@ -172,12 +180,32 @@ def main():
             MessageHandler(filters.Regex("^(📢 Simple Echo & Info Bot|🛡️ Group Welcome Bot|📣 Broadcast Bot.*)$"), template_select_start)
         ],
         states={
-            TPL_TOKEN: [MessageHandler(filters.TEXT & ~filters.COMMAND, template_token_received)]
+            TPL_TOKEN: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~cancel_filter, template_token_received)]
         },
         fallbacks=[
             CommandHandler("cancel", cancel_tpl),
-            MessageHandler(filters.Regex("^(❌ Cancel|/cancel|cancel|🔙 Back to Main Menu)$"), cancel_tpl),
+            MessageHandler(filters.Regex(r"(?i)^(❌\s*Cancel|/cancel|cancel|🔙\s*Back to Main Menu|🏠\s*Main Menu)$"), cancel_tpl),
             CallbackQueryHandler(cancel_tpl, pattern="^(cancel_tpl|user_menu)$")
+        ],
+        conversation_timeout=CONV_TIMEOUT,
+        per_message=False
+    )
+
+    admin_fsub_conv = ConversationHandler(
+        entry_points=[
+            MessageHandler(filters.Regex("^➕ Add Force-Sub Channel$"), admin_fsub_add_start),
+            CallbackQueryHandler(admin_fsub_add_start, pattern="^admin_fsub_add_start$"),
+            CommandHandler("addchannel", admin_fsub_add_start)
+        ],
+        states={
+            A_FSUB_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~cancel_filter, admin_fsub_get_id)],
+            A_FSUB_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~cancel_filter, admin_fsub_get_title)],
+            A_FSUB_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~cancel_filter, admin_fsub_get_link)],
+        },
+        fallbacks=[
+            CommandHandler("cancel", admin_fsub_cancel),
+            MessageHandler(filters.Regex(r"(?i)^(❌\s*Cancel|/cancel|cancel|🔙\s*Back to Admin|🏠\s*Back to Admin|🏠\s*Exit Admin)$"), admin_fsub_cancel),
+            CallbackQueryHandler(admin_fsub_cancel, pattern="^(admin_fsub_cancel|admin_panel)$")
         ],
         conversation_timeout=CONV_TIMEOUT,
         per_message=False

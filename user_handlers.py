@@ -13,7 +13,12 @@ from config import ADMIN_ID, DATA_DIR, BOT_TOKEN
 import database
 from bot_manager import bot_manager
 from templates import TEMPLATES
-from code_analyzer import validate_python_syntax, extract_token_from_code, is_cancellation_text
+from code_analyzer import (
+    validate_python_syntax,
+    extract_token_from_code,
+    is_cancellation_text,
+    is_menu_navigation_text
+)
 
 logger = logging.getLogger("GravixHost.User")
 
@@ -21,16 +26,20 @@ NAME, TOKEN, CODE = range(3)
 TPL_TOKEN = 10
 
 # ---------------------------------------------------------
-# UI & Typography Helpers (Ultra-Premium Aesthetics)
+# UI & Typography Helpers (Mobile-Friendly Clean Aesthetics)
 # ---------------------------------------------------------
 
-def make_header_card(title: str, subtitle: str = "Next-Gen 24/7 Cloud Hosting Engine") -> str:
-    """Builds a luxury framed header card with small-caps typography."""
+def make_header_card(title: str = "GRAVIX-HOST PRO", subtitle: str = "Next-Gen 24/7 Cloud Hosting Engine") -> str:
+    """Builds a clean, single-line mobile-friendly header."""
+    if subtitle:
+        return (
+            f"<b>⚡ {title} ⚡</b>\n"
+            f"<i>{subtitle}</i>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━"
+        )
     return (
-        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
-        f"│  ⚡ <b>{title}</b>  ⚡\n"
-        f"│  <i>{subtitle}</i>\n"
-        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯"
+        f"<b>⚡ {title} ⚡</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━"
     )
 
 def get_status_badge(status: str) -> str:
@@ -119,10 +128,10 @@ def get_force_sub_keyboard(unjoined_channels: list) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 async def send_force_sub_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE, unjoined_channels: list):
-    header = make_header_card("ᴍ ᴀ ɴ ᴅ ᴀ ᴛ ᴏ ʀ ʏ  ᴄ ʜ ᴀ ɴ ɴ ᴇ ʟ  ᴊ ᴏ ɪ ɴ", "Official Community Verification")
+    header = make_header_card("MANDATORY CHANNEL JOIN", "Official Community Verification")
     text = (
         f"{header}\n\n"
-        "<blockquote>To access <b>ɢ ʀ ᴀ ᴠ ɪ x - ʜ ᴏ s ᴛ</b> and deploy your Telegram bots 24/7, "
+        "<blockquote>To access <b>Gravix-Host</b> and deploy your Telegram bots 24/7, "
         "you must join our official community channels first.</blockquote>\n\n"
         "<b>📢 Verification Steps:</b>\n"
         "<blockquote>1. Click and join each official channel listed below.\n"
@@ -251,7 +260,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if db_user['is_banned']:
         msg = (
-            f"{make_header_card('ᴀ ᴄ ᴄ ᴏ ᴜ ɴ ᴛ  s ᴜ s ᴘ ᴇ ɴ ᴅ ᴇ ᴅ', 'Access Denied')}\n\n"
+            f"{make_header_card('ACCOUNT SUSPENDED', 'Access Denied')}\n\n"
             "<blockquote>🚫 <b>Access Restricted:</b> Your account has been suspended by the administrator.</blockquote>"
         )
         if update.callback_query:
@@ -271,13 +280,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if maint and user.id != ADMIN_ID:
         maint_notice = "\n<blockquote>⚠️ <b>Notice:</b> System maintenance is currently active. Deployments may be temporarily paused.</blockquote>\n"
 
-    header = make_header_card("ɢ ʀ ᴀ ᴠ ɪ x - ʜ ᴏ s ᴛ  ᴘ ʀ ᴏ", "Next-Gen 24/7 Cloud Hosting Engine")
+    header = make_header_card("GRAVIX-HOST PRO", "Next-Gen 24/7 Cloud Hosting Engine")
     safe_name = html.escape(user.first_name or "Developer")
 
     text = (
         f"{header}\n\n"
         f"👋 Welcome, <b>{safe_name}</b>!\n\n"
-        "<blockquote><b>ɢ ʀ ᴀ ᴠ ɪ x - ʜ ᴏ s ᴛ</b> delivers high-performance 24/7 isolated cloud runtime "
+        "<blockquote><b>Gravix-Host</b> delivers high-performance 24/7 isolated cloud runtime "
         "for your Python Telegram bots with automated watchdog monitoring and zero downtime.</blockquote>\n\n"
         "<b>🚀 Platform Capabilities:</b>\n"
         "<blockquote>• <b>Custom Python Hosting:</b> Upload scripts or raw code\n"
@@ -304,7 +313,7 @@ async def show_my_bots(update: Update, context: ContextTypes.DEFAULT_TYPE, page:
     db_user = database.get_or_create_user(user_id)
     if db_user['is_banned']:
         msg = (
-            f"{make_header_card('ᴀ ᴄ ᴄ ᴏ ᴜ ɴ ᴛ  s ᴜ s ᴘ ᴇ ɴ ᴅ ᴇ ᴅ', 'Access Denied')}\n\n"
+            f"{make_header_card('ACCOUNT SUSPENDED', 'Access Denied')}\n\n"
             "<blockquote>🚫 <b>Access Restricted:</b> Your account has been suspended by the administrator.</blockquote>"
         )
         if update.callback_query:
@@ -327,10 +336,10 @@ async def show_my_bots(update: Update, context: ContextTypes.DEFAULT_TYPE, page:
     curr_bots = user_bots[page * per_page : (page + 1) * per_page]
 
     if not user_bots:
-        header = make_header_card("ᴍ ʏ  ʜ ᴏ s ᴛ ᴇ ᴅ  ʙ ᴏ ᴛ s", "Cloud Instances Overview")
+        header = make_header_card("MY HOSTED BOTS", "Cloud Instances Overview")
         text = (
             f"{header}\n\n"
-            "<blockquote>You currently have no hosted bots provisioned on <b>ɢ ʀ ᴀ ᴠ ɪ x - ʜ ᴏ s ᴛ</b>.</blockquote>\n\n"
+            "<blockquote>You currently have no hosted bots provisioned on <b>Gravix-Host</b>.</blockquote>\n\n"
             "<b>🚀 Getting Started:</b>\n"
             "<blockquote>• Tap <b>➕ Host New Bot</b> to deploy your custom Python script.\n"
             "• Tap <b>⚡ Quick Template Deploy</b> to launch a ready-made template in seconds.</blockquote>"
@@ -345,7 +354,7 @@ async def show_my_bots(update: Update, context: ContextTypes.DEFAULT_TYPE, page:
             await update.message.reply_text(text, reply_markup=keyboard, parse_mode="HTML")
         return
 
-    header = make_header_card("ᴍ ʏ  ʜ ᴏ s ᴛ ᴇ ᴅ  ʙ ᴏ ᴛ s", f"Page {page + 1} of {total_pages}")
+    header = make_header_card("MY HOSTED BOTS", f"Page {page + 1} of {total_pages}")
     
     bot_lines = []
     for b in curr_bots:
@@ -375,7 +384,7 @@ async def show_bot_details(update: Update, context: ContextTypes.DEFAULT_TYPE, b
     db_user = database.get_or_create_user(user_id)
     if db_user['is_banned']:
         msg = (
-            f"{make_header_card('ᴀ ᴄ ᴄ ᴏ ᴜ ɴ ᴛ  s ᴜ s ᴘ ᴇ ɴ ᴅ ᴇ ᴅ', 'Access Denied')}\n\n"
+            f"{make_header_card('ACCOUNT SUSPENDED', 'Access Denied')}\n\n"
             "<blockquote>🚫 <b>Access Restricted:</b> Your account has been suspended by the administrator.</blockquote>"
         )
         if update.callback_query:
@@ -438,7 +447,7 @@ async def show_bot_details(update: Update, context: ContextTypes.DEFAULT_TYPE, b
                 uptime_str = "Active"
 
     auto_restart_str = "Enabled (Watchdog Active)" if bot_data.get('auto_restart') else "Disabled"
-    header = make_header_card("ʙ ᴏ ᴛ  ɪ ɴ s ᴘ ᴇ ᴄ ᴛ ᴏ ʀ", "Instance Diagnostics & Control")
+    header = make_header_card("BOT INSPECTOR", "Instance Diagnostics & Control")
     safe_bot_name = html.escape(bot_data.get('bot_name', 'Unnamed Bot'))
 
     text = (
@@ -468,7 +477,7 @@ async def handle_bot_action(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     db_user = database.get_or_create_user(user_id)
     if db_user['is_banned']:
         msg = (
-            f"{make_header_card('ᴀ ᴄ ᴄ ᴏ ᴜ ɴ ᴛ  s ᴜ s ᴘ ᴇ ɴ ᴅ ᴇ ᴅ', 'Access Denied')}\n\n"
+            f"{make_header_card('ACCOUNT SUSPENDED', 'Access Denied')}\n\n"
             "<blockquote>🚫 <b>Access Restricted:</b> Your account has been suspended by the administrator.</blockquote>"
         )
         if update.callback_query:
@@ -517,7 +526,7 @@ async def handle_bot_action(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     if action == "start":
         success, msg = await bot_manager.start_bot(bot_id)
-        header = make_header_card("ᴀ ᴄ ᴛ ɪ ᴏ ɴ  ᴇ x ᴇ ᴄ ᴜ ᴛ ɪ ᴏ ɴ", "Start Instance")
+        header = make_header_card("ACTION EXECUTION", "Start Instance")
         resp = (
             f"{header}\n\n"
             f"<blockquote>🟢 <b>Bot Start Result:</b>\n{html.escape(msg)}</blockquote>"
@@ -527,7 +536,7 @@ async def handle_bot_action(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     elif action == "stop":
         success, msg = await bot_manager.stop_bot(bot_id)
-        header = make_header_card("ᴀ ᴄ ᴛ ɪ ᴏ ɴ  ᴇ x ᴇ ᴄ ᴜ ᴛ ɪ ᴏ ɴ", "Stop Instance")
+        header = make_header_card("ACTION EXECUTION", "Stop Instance")
         resp = (
             f"{header}\n\n"
             f"<blockquote>⏹️ <b>Bot Stop Result:</b>\n{html.escape(msg)}</blockquote>"
@@ -537,7 +546,7 @@ async def handle_bot_action(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     elif action == "restart":
         success, msg = await bot_manager.restart_bot(bot_id)
-        header = make_header_card("ᴀ ᴄ ᴛ ɪ ᴏ ɴ  ᴇ x ᴇ ᴄ ᴜ ᴛ ɪ ᴏ ɴ", "Restart Instance")
+        header = make_header_card("ACTION EXECUTION", "Restart Instance")
         resp = (
             f"{header}\n\n"
             f"<blockquote>🔄 <b>Bot Restart Result:</b>\n{html.escape(msg)}</blockquote>"
@@ -549,7 +558,7 @@ async def handle_bot_action(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         logs = bot_manager.get_logs(bot_id, lines=25)
         if not logs.strip():
             logs = "No console logs recorded yet for this bot instance."
-        header = make_header_card("ʟ ɪ ᴠ ᴇ  ᴄ ᴏ ɴ s ᴏ ʟ ᴇ  ʟ ᴏ ɢ s", f"Instance #{html.escape(bot_id)}")
+        header = make_header_card("LIVE CONSOLE LOGS", f"Instance #{html.escape(bot_id)}")
         safe_logs = html.escape(logs[-3500:])
         text = (
             f"{header}\n\n"
@@ -564,7 +573,7 @@ async def handle_bot_action(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         )
 
     elif action == "delete_confirm":
-        header = make_header_card("ᴄ ᴏ ɴ ғ ɪ ʀ ᴍ  ᴅ ᴇ ʟ ᴇ ᴛ ɪ ᴏ ɴ", "Permanent Instance Removal")
+        header = make_header_card("CONFIRM DELETION", "Permanent Instance Removal")
         text = (
             f"{header}\n\n"
             f"<blockquote>⚠️ <b>Are you sure you want to permanently delete:</b>\n"
@@ -585,7 +594,7 @@ async def handle_bot_action(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         if os.path.exists(script_dir):
             shutil.rmtree(script_dir, ignore_errors=True)
         database.delete_bot_record(bot_id)
-        header = make_header_card("ɪ ɴ s ᴛ ᴀ ɴ ᴄ ᴇ  ᴅ ᴇ ʟ ᴇ ᴛ ᴇ ᴅ", "Cleanup Complete")
+        header = make_header_card("INSTANCE DELETED", "Cleanup Complete")
         text = (
             f"{header}\n\n"
             f"<blockquote>🗑️ Bot <b>{safe_bot_name}</b> (<code>#{html.escape(bot_id)}</code>) "
@@ -595,7 +604,7 @@ async def handle_bot_action(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         await show_my_bots(update, context, page=0)
 
     elif action == "cancel_delete":
-        header = make_header_card("ᴀ ᴄ ᴛ ɪ ᴏ ɴ  ᴀ ʙ ᴏ ʀ ᴛ ᴇ ᴅ", "Deletion Cancelled")
+        header = make_header_card("ACTION ABORTED", "Deletion Cancelled")
         text = (
             f"{header}\n\n"
             f"<blockquote>Deletion of bot <b>{safe_bot_name}</b> (<code>#{html.escape(bot_id)}</code>) was cancelled.</blockquote>"
@@ -609,7 +618,7 @@ async def show_account_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db_user = database.get_or_create_user(user_id)
     if db_user['is_banned']:
         msg = (
-            f"{make_header_card('ᴀ ᴄ ᴄ ᴏ ᴜ ɴ ᴛ  s ᴜ s ᴘ ᴇ ɴ ᴅ ᴇ ᴅ', 'Access Denied')}\n\n"
+            f"{make_header_card('ACCOUNT SUSPENDED', 'Access Denied')}\n\n"
             "<blockquote>🚫 <b>Access Restricted:</b> Your account has been suspended by the administrator.</blockquote>"
         )
         if update.callback_query:
@@ -630,7 +639,7 @@ async def show_account_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     available_slots = max(0, max_slots - len(user_bots))
     username_str = f"@{html.escape(user.username)}" if user.username else "<code>N/A</code>"
 
-    header = make_header_card("ᴀ ᴄ ᴄ ᴏ ᴜ ɴ ᴛ  ǫ ᴜ ᴏ ᴛ ᴀ", "Resource Allocation & Limits")
+    header = make_header_card("ACCOUNT QUOTA", "Resource Allocation & Limits")
     text = (
         f"{header}\n\n"
         "<b>👤 Account Identity:</b>\n"
@@ -656,7 +665,7 @@ async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db_user = database.get_or_create_user(user_id)
     if db_user['is_banned']:
         msg = (
-            f"{make_header_card('ᴀ ᴄ ᴄ ᴏ ᴜ ɴ ᴛ  s ᴜ s ᴘ ᴇ ɴ ᴅ ᴇ ᴅ', 'Access Denied')}\n\n"
+            f"{make_header_card('ACCOUNT SUSPENDED', 'Access Denied')}\n\n"
             "<blockquote>🚫 <b>Access Restricted:</b> Your account has been suspended by the administrator.</blockquote>"
         )
         if update.callback_query:
@@ -671,7 +680,7 @@ async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_force_sub_prompt(update, context, unjoined)
         return
 
-    header = make_header_card("ɢ ᴜ ɪ ᴅ ᴇ ʟ ɪ ɴ ᴇ s  &  ʜ ᴇ ʟ ᴘ", "Quick Start & Deployment Manual")
+    header = make_header_card("GUIDELINES & HELP", "Quick Start & Deployment Manual")
     text = (
         f"{header}\n\n"
         "<b>🚀 4-Step Deployment Guide:</b>\n"
@@ -701,7 +710,7 @@ async def show_templates_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     db_user = database.get_or_create_user(user_id)
     if db_user['is_banned']:
         msg = (
-            f"{make_header_card('ᴀ ᴄ ᴄ ᴏ ᴜ ɴ ᴛ  s ᴜ s ᴘ ᴇ ɴ ᴅ ᴇ ᴅ', 'Access Denied')}\n\n"
+            f"{make_header_card('ACCOUNT SUSPENDED', 'Access Denied')}\n\n"
             "<blockquote>🚫 <b>Access Restricted:</b> Your account has been suspended by the administrator.</blockquote>"
         )
         if update.callback_query:
@@ -719,7 +728,7 @@ async def show_templates_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     maint = database.get_setting("maintenance_mode", "0") == "1"
     if maint and user_id != ADMIN_ID:
         msg = (
-            f"{make_header_card('ᴍ ᴀ ɪ ɴ ᴛ ᴇ ɴ ᴀ ɴ ᴄ ᴇ  ᴍ ᴏ ᴅ ᴇ', 'Temporary System Pause')}\n\n"
+            f"{make_header_card('MAINTENANCE MODE', 'Temporary System Pause')}\n\n"
             "<blockquote>⚠️ <b>Notice:</b> Platform is currently undergoing maintenance. New bot deployments are paused.</blockquote>"
         )
         if update.callback_query:
@@ -729,7 +738,7 @@ async def show_templates_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text(msg, reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
         return
 
-    header = make_header_card("ǫ ᴜ ɪ ᴄ ᴋ  ᴛ ᴇ ᴍ ᴘ ʟ ᴀ ᴛ ᴇ s", "1-Click Ready-to-Deploy Instances")
+    header = make_header_card("QUICK TEMPLATES", "1-Click Ready-to-Deploy Instances")
     
     tpl_lines = []
     for key, tinfo in TEMPLATES.items():
@@ -760,10 +769,21 @@ async def template_select_start(update: Update, context: ContextTypes.DEFAULT_TY
     user = update.effective_user
     user_id = user.id
 
+    if update.message and update.message.text:
+        text = update.message.text.strip()
+        if is_cancellation_text(text) or (is_menu_navigation_text(text) and not any(text == v['name'] or text.startswith(v['name']) for v in TEMPLATES.values())):
+            context.user_data.pop('active_flow', None)
+            context.user_data.pop('deploy_template_key', None)
+            if text in ["❌ Cancel", "/cancel", "cancel"] or text.lower() in ["❌ cancel", "/cancel", "cancel"]:
+                await update.message.reply_text("❌ Hosting wizard cancelled.", reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
+            else:
+                await user_text_router(update, context)
+            return ConversationHandler.END
+
     db_user = database.get_or_create_user(user_id)
     if db_user['is_banned']:
         msg = (
-            f"{make_header_card('ᴀ ᴄ ᴄ ᴏ ᴜ ɴ ᴛ  s ᴜ s ᴘ ᴇ ɴ ᴅ ᴇ ᴅ', 'Access Denied')}\n\n"
+            f"{make_header_card('ACCOUNT SUSPENDED', 'Access Denied')}\n\n"
             "<blockquote>🚫 <b>Access Restricted:</b> Your account has been suspended.</blockquote>"
         )
         if update.callback_query:
@@ -783,7 +803,7 @@ async def template_select_start(update: Update, context: ContextTypes.DEFAULT_TY
     maint = database.get_setting("maintenance_mode", "0") == "1"
     if maint and user_id != ADMIN_ID:
         msg = (
-            f"{make_header_card('ᴍ ᴀ ɪ ɴ ᴛ ᴇ ɴ ᴀ ɴ ᴄ ᴇ  ᴍ ᴏ ᴅ ᴇ', 'Temporary System Pause')}\n\n"
+            f"{make_header_card('MAINTENANCE MODE', 'Temporary System Pause')}\n\n"
             "<blockquote>⚠️ <b>Notice:</b> Platform is currently under maintenance. New bot deployments are paused.</blockquote>"
         )
         if update.callback_query:
@@ -797,7 +817,7 @@ async def template_select_start(update: Update, context: ContextTypes.DEFAULT_TY
     max_slots = db_user.get('max_slots', 3)
     if len(user_bots) >= max_slots:
         msg = (
-            f"{make_header_card('ǫ ᴜ ᴏ ᴛ ᴀ  ʟ ɪ ᴍ ɪ ᴛ  ʀ ᴇ ᴀ ᴄ ʜ ᴇ ᴅ', 'Resource Capacity Exceeded')}\n\n"
+            f"{make_header_card('QUOTA LIMIT REACHED', 'Resource Capacity Exceeded')}\n\n"
             f"<blockquote>⚠️ You have reached your slot limit of <code>{max_slots}</code> bots "
             f"(<code>{len(user_bots)}/{max_slots}</code>).\n\n"
             "Please delete an unused bot from <b>🤖 My Hosted Bots</b> or contact Admin for additional capacity.</blockquote>"
@@ -832,7 +852,7 @@ async def template_select_start(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data['active_flow'] = 'tpl'
     tinfo = TEMPLATES[tpl_key]
 
-    header = make_header_card("ǫ ᴜ ɪ ᴄ ᴋ  ᴛ ᴇ ᴍ ᴘ ʟ ᴀ ᴛ ᴇ  ᴅ ᴇ ᴘ ʟ ᴏ ʏ", "1-Click Automated Setup")
+    header = make_header_card("QUICK TEMPLATE DEPLOY", "1-Click Automated Setup")
     safe_tname = html.escape(tinfo.get('name', 'Template'))
     safe_tdesc = html.escape(tinfo.get('description', ''))
 
@@ -854,20 +874,37 @@ async def template_select_start(update: Update, context: ContextTypes.DEFAULT_TY
     return TPL_TOKEN
 
 async def template_token_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not update.message or not update.message.text:
+        await update.effective_message.reply_text(
+            "<blockquote>⚠️ Please send your bot API token as text or tap <b>❌ Cancel</b>.</blockquote>",
+            reply_markup=get_cancel_keyboard(),
+            parse_mode="HTML"
+        )
+        return TPL_TOKEN
+
+    text = update.message.text.strip()
+    if is_cancellation_text(text) or is_menu_navigation_text(text):
+        context.user_data.pop('active_flow', None)
+        context.user_data.pop('bot_name', None)
+        context.user_data.pop('bot_token', None)
+        context.user_data.pop('bot_id', None)
+        context.user_data.pop('deploy_template_key', None)
+        if text in ["❌ Cancel", "/cancel", "cancel"] or text.lower() in ["❌ cancel", "/cancel", "cancel"]:
+            await update.message.reply_text("❌ Hosting wizard cancelled.", reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
+        else:
+            await user_text_router(update, context)
+        return ConversationHandler.END
+
     if context.user_data.get('active_flow') != 'tpl':
         await update.message.reply_text(
             "<blockquote>⚠️ <b>Session Expired:</b> Please reopen <b>⚡ Quick Template Deploy</b> from the main menu.</blockquote>",
-            reply_markup=get_main_reply_keyboard(update.effective_user.id),
+            reply_markup=get_main_reply_keyboard(user_id),
             parse_mode="HTML"
         )
         return ConversationHandler.END
 
-    user_id = update.effective_user.id
-    raw_token = update.message.text.strip() if (update.message and update.message.text) else ""
-    if is_cancellation_text(raw_token):
-        return await cancel_tpl(update, context)
-
-    token = sanitize_token(raw_token)
+    token = sanitize_token(text)
     tpl_key = context.user_data.get('deploy_template_key', 'echo_bot')
     tinfo = TEMPLATES.get(tpl_key, TEMPLATES['echo_bot'])
 
@@ -907,7 +944,7 @@ async def template_token_received(update: Update, context: ContextTypes.DEFAULT_
 
     bot_status = "RUNNING" if success else "FAILED"
     status_badge = get_status_badge(bot_status)
-    header = make_header_card("ᴛ ᴇ ᴍ ᴘ ʟ ᴀ ᴛ ᴇ  ʟ ᴀ ᴜ ɴ ᴄ ʜ ᴇ ᴅ !", "1-Click Provisioning Complete")
+    header = make_header_card("TEMPLATE LAUNCHED!", "1-Click Provisioning Complete")
     safe_bot_name = html.escape(bot_name)
     safe_msg = html.escape(msg)
 
@@ -919,7 +956,7 @@ async def template_token_received(update: Update, context: ContextTypes.DEFAULT_
         f"• <b>Bot ID:</b> <code>#{html.escape(bot_id)}</code>\n"
         f"• <b>Status:</b> {status_badge}\n"
         f"• <b>Diagnostics:</b> {safe_msg}</blockquote>\n\n"
-        "<blockquote>💡 <i>Your bot is now live and running 24/7 on <b>ɢ ʀ ᴀ ᴠ ɪ x - ʜ ᴏ s ᴛ</b>.</i></blockquote>"
+        "<blockquote>💡 <i>Your bot is now live and running 24/7 on <b>Gravix-Host</b>.</i></blockquote>"
     )
     await status_msg.reply_text(resp_text, reply_markup=get_bot_detail_reply_keyboard(bot_id, bot_status), parse_mode="HTML")
     return ConversationHandler.END
@@ -927,7 +964,7 @@ async def template_token_received(update: Update, context: ContextTypes.DEFAULT_
 async def cancel_tpl(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     user_id = update.effective_user.id
-    header = make_header_card("ᴅ ᴇ ᴘ ʟ ᴏ ʏ ᴍ ᴇ ɴ ᴛ  ᴄ ᴀ ɴ ᴄ ᴇ ʟ ʟ ᴇ ᴅ", "Template Setup Aborted")
+    header = make_header_card("DEPLOYMENT CANCELLED", "Template Setup Aborted")
     text = (
         f"{header}\n\n"
         "<blockquote>❌ Template deployment cancelled. No resources were provisioned.</blockquote>"
@@ -948,7 +985,7 @@ async def host_bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db_user = database.get_or_create_user(user_id)
     if db_user['is_banned']:
         msg = (
-            f"{make_header_card('ᴀ ᴄ ᴄ ᴏ ᴜ ɴ ᴛ  s ᴜ s ᴘ ᴇ ɴ ᴅ ᴇ ᴅ', 'Access Denied')}\n\n"
+            f"{make_header_card('ACCOUNT SUSPENDED', 'Access Denied')}\n\n"
             "<blockquote>🚫 <b>Access Restricted:</b> Your account has been suspended by the administrator.</blockquote>"
         )
         if update.callback_query:
@@ -968,7 +1005,7 @@ async def host_bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     maint = database.get_setting("maintenance_mode", "0") == "1"
     if maint and user_id != ADMIN_ID:
         msg = (
-            f"{make_header_card('ᴍ ᴀ ɪ ɴ ᴛ ᴇ ɴ ᴀ ɴ ᴄ ᴇ  ᴍ ᴏ ᴅ ᴇ', 'Temporary System Pause')}\n\n"
+            f"{make_header_card('MAINTENANCE MODE', 'Temporary System Pause')}\n\n"
             "<blockquote>⚠️ <b>Notice:</b> Platform is currently undergoing maintenance. New bot deployments are paused.</blockquote>"
         )
         if update.callback_query:
@@ -982,7 +1019,7 @@ async def host_bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     max_slots = db_user.get('max_slots', 3)
     if len(user_bots) >= max_slots:
         msg = (
-            f"{make_header_card('ǫ ᴜ ᴏ ᴛ ᴀ  ʟ ɪ ᴍ ɪ ᴛ  ʀ ᴇ ᴀ ᴄ ʜ ᴇ ᴅ', 'Resource Capacity Exceeded')}\n\n"
+            f"{make_header_card('QUOTA LIMIT REACHED', 'Resource Capacity Exceeded')}\n\n"
             f"<blockquote>⚠️ You have reached your slot limit of <code>{max_slots}</code> bots "
             f"(<code>{len(user_bots)}/{max_slots}</code>).\n\n"
             "Please delete an existing bot from <b>🤖 My Hosted Bots</b> or contact Admin for more slots.</blockquote>"
@@ -998,7 +1035,7 @@ async def host_bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.callback_query.answer()
 
     context.user_data['active_flow'] = 'host'
-    header = make_header_card("ᴄ ᴜ s ᴛ ᴏ ᴍ  ʙ ᴏ ᴛ  ʜ ᴏ s ᴛ ɪ ɴ ɢ", "Step 1 of 3: Instance Identification")
+    header = make_header_card("CUSTOM BOT HOSTING", "Step 1 of 3: Instance Identification")
     text = (
         f"{header}\n\n"
         "<blockquote>Please enter a friendly <b>Display Name</b> for your bot.\n"
@@ -1013,19 +1050,39 @@ async def host_bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return NAME
 
 async def host_bot_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not update.message or not update.message.text:
+        await update.effective_message.reply_text(
+            "<blockquote>⚠️ Please enter a text name for your bot or tap <b>❌ Cancel</b>.</blockquote>",
+            reply_markup=get_cancel_keyboard(),
+            parse_mode="HTML"
+        )
+        return NAME
+
+    text = update.message.text.strip()
+    if is_cancellation_text(text) or is_menu_navigation_text(text):
+        context.user_data.pop('active_flow', None)
+        context.user_data.pop('bot_name', None)
+        context.user_data.pop('bot_token', None)
+        context.user_data.pop('bot_id', None)
+        context.user_data.pop('new_bot_name', None)
+        context.user_data.pop('new_bot_token', None)
+        context.user_data.pop('bot_uname', None)
+        if text in ["❌ Cancel", "/cancel", "cancel"] or text.lower() in ["❌ cancel", "/cancel", "cancel"]:
+            await update.message.reply_text("❌ Hosting wizard cancelled.", reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
+        else:
+            await user_text_router(update, context)
+        return ConversationHandler.END
+
     if context.user_data.get('active_flow') != 'host':
         await update.message.reply_text(
             "<blockquote>⚠️ <b>Session Interrupted:</b> Please use /start to begin again.</blockquote>",
-            reply_markup=get_main_reply_keyboard(update.effective_user.id),
+            reply_markup=get_main_reply_keyboard(user_id),
             parse_mode="HTML"
         )
         return ConversationHandler.END
 
-    raw_text = update.message.text.strip() if (update.message and update.message.text) else ""
-    if is_cancellation_text(raw_text):
-        return await cancel_host(update, context)
-
-    bot_name = raw_text
+    bot_name = text
     if len(bot_name) < 2 or len(bot_name) > 30:
         await update.message.reply_text(
             "<blockquote>⚠️ <b>Invalid Name:</b> Name must be between 2 and 30 characters. Please enter a valid name:</blockquote>",
@@ -1037,8 +1094,8 @@ async def host_bot_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['new_bot_name'] = bot_name
     context.user_data['bot_name'] = bot_name
     safe_bot_name = html.escape(bot_name)
-    header = make_header_card("ᴄ ᴜ s ᴛ ᴏ ᴍ  ʙ ᴏ ᴛ  ʜ ᴏ s ᴛ ɪ ɴ ɢ", "Step 2 of 3: API Authentication")
-    text = (
+    header = make_header_card("CUSTOM BOT HOSTING", "Step 2 of 3: API Authentication")
+    text_resp = (
         f"{header}\n\n"
         f"<blockquote>Target Bot: <b>{safe_bot_name}</b></blockquote>\n\n"
         "<b>🔑 Telegram Bot Token:</b>\n"
@@ -1047,33 +1104,53 @@ async def host_bot_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "💡 <i>If your token is hardcoded in your Python script, tap <b>⏩ Skip (Auto-Detect Token)</b>.</i></blockquote>\n\n"
         "👇 <i>Send your token as text or choose an option below:</i>"
     )
-    await update.message.reply_text(text, reply_markup=get_token_input_keyboard(), parse_mode="HTML")
+    await update.message.reply_text(text_resp, reply_markup=get_token_input_keyboard(), parse_mode="HTML")
     return TOKEN
 
 async def host_bot_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not update.message or not update.message.text:
+        await update.effective_message.reply_text(
+            "<blockquote>⚠️ Please send your bot API token as text or tap <b>❌ Cancel</b>.</blockquote>",
+            reply_markup=get_token_input_keyboard(),
+            parse_mode="HTML"
+        )
+        return TOKEN
+
+    text = update.message.text.strip()
+    if is_cancellation_text(text) or is_menu_navigation_text(text):
+        context.user_data.pop('active_flow', None)
+        context.user_data.pop('bot_name', None)
+        context.user_data.pop('bot_token', None)
+        context.user_data.pop('bot_id', None)
+        context.user_data.pop('new_bot_name', None)
+        context.user_data.pop('new_bot_token', None)
+        context.user_data.pop('bot_uname', None)
+        if text in ["❌ Cancel", "/cancel", "cancel"] or text.lower() in ["❌ cancel", "/cancel", "cancel"]:
+            await update.message.reply_text("❌ Hosting wizard cancelled.", reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
+        else:
+            await user_text_router(update, context)
+        return ConversationHandler.END
+
     if context.user_data.get('active_flow') != 'host':
         await update.message.reply_text(
             "<blockquote>⚠️ <b>Session Interrupted:</b> Please resend your bot token to continue.</blockquote>",
-            reply_markup=get_main_reply_keyboard(update.effective_user.id),
+            reply_markup=get_main_reply_keyboard(user_id),
             parse_mode="HTML"
         )
         return ConversationHandler.END
 
-    raw_token = update.message.text.strip() if (update.message and update.message.text) else ""
-    if is_cancellation_text(raw_token):
-        return await cancel_host(update, context)
-
     # Check for Skip (Auto-Detect Token)
-    if raw_token == "⏩ Skip (Auto-Detect Token)" or raw_token.lower() in ("skip", "/skip"):
+    if text == "⏩ Skip (Auto-Detect Token)" or text.lower() in ("skip", "/skip"):
         context.user_data['bot_token'] = 'AUTO_DETECT'
         context.user_data['new_bot_token'] = 'AUTO_DETECT'
         context.user_data['bot_uname'] = 'Auto-Detect'
         bot_name = context.user_data.get('new_bot_name') or context.user_data.get('bot_name', 'My Bot')
 
-        header = make_header_card("ᴄ ᴜ s ᴛ ᴏ ᴍ  ʙ ᴏ ᴛ  ʜ ᴏ s ᴛ ɪ ɴ ɢ", "Step 3 of 3: Source Code Provisioning")
+        header = make_header_card("CUSTOM BOT HOSTING", "Step 3 of 3: Source Code Provisioning")
         safe_bot_name = html.escape(bot_name)
 
-        text = (
+        resp_text = (
             f"{header}\n\n"
             f"<blockquote>Target Bot: <b>{safe_bot_name}</b> (<code>Token: Auto-Detect</code>)</blockquote>\n\n"
             "<b>📤 Provide Python Source Code:</b>\n"
@@ -1082,10 +1159,10 @@ async def host_bot_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🔍 <i>Our engine will automatically extract and validate your bot token from the script.</i></blockquote>\n\n"
             "👇 <i>Send the script file or text, or tap <b>❌ Cancel</b> to abort:</i>"
         )
-        await update.message.reply_text(text, reply_markup=get_cancel_keyboard(), parse_mode="HTML")
+        await update.message.reply_text(resp_text, reply_markup=get_cancel_keyboard(), parse_mode="HTML")
         return CODE
 
-    token = sanitize_token(raw_token)
+    token = sanitize_token(text)
 
     if token == BOT_TOKEN:
         await update.message.reply_text(
@@ -1111,11 +1188,11 @@ async def host_bot_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['bot_uname'] = bot_uname
     bot_name = context.user_data.get('new_bot_name') or context.user_data.get('bot_name', 'My Bot')
 
-    header = make_header_card("ᴄ ᴜ s ᴛ ᴏ ᴍ  ʙ ᴏ ᴛ  ʜ ᴏ s ᴛ ɪ ɴ ɢ", "Step 3 of 3: Source Code Provisioning")
+    header = make_header_card("CUSTOM BOT HOSTING", "Step 3 of 3: Source Code Provisioning")
     safe_bot_name = html.escape(bot_name)
     safe_bot_uname = html.escape(bot_uname)
 
-    text = (
+    resp_text = (
         f"{header}\n\n"
         f"<blockquote>Target Bot: <b>{safe_bot_name}</b> (<code>@{safe_bot_uname}</code>)</blockquote>\n\n"
         "<b>📤 Provide Python Source Code:</b>\n"
@@ -1123,21 +1200,42 @@ async def host_bot_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<b>Option 2:</b> Paste your Python code directly in chat.</blockquote>\n\n"
         "👇 <i>Send the script file or text, or tap <b>❌ Cancel</b> to abort:</i>"
     )
-    await update.message.reply_text(text, reply_markup=get_cancel_keyboard(), parse_mode="HTML")
+    await update.message.reply_text(resp_text, reply_markup=get_cancel_keyboard(), parse_mode="HTML")
     return CODE
 
 async def host_bot_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not update.message or (not update.message.text and not update.message.document):
+        await update.effective_message.reply_text(
+            "<blockquote>⚠️ <b>Invalid Input:</b> Please send either a <code>.py</code> document or paste python code text.</blockquote>",
+            reply_markup=get_cancel_keyboard(),
+            parse_mode="HTML"
+        )
+        return CODE
+
+    if update.message.text:
+        text = update.message.text.strip()
+        if is_cancellation_text(text) or is_menu_navigation_text(text):
+            context.user_data.pop('active_flow', None)
+            context.user_data.pop('bot_name', None)
+            context.user_data.pop('bot_token', None)
+            context.user_data.pop('bot_id', None)
+            context.user_data.pop('new_bot_name', None)
+            context.user_data.pop('new_bot_token', None)
+            context.user_data.pop('bot_uname', None)
+            if text in ["❌ Cancel", "/cancel", "cancel"] or text.lower() in ["❌ cancel", "/cancel", "cancel"]:
+                await update.message.reply_text("❌ Hosting wizard cancelled.", reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
+            else:
+                await user_text_router(update, context)
+            return ConversationHandler.END
+
     if context.user_data.get('active_flow') != 'host':
         await update.message.reply_text(
             "<blockquote>⚠️ <b>Session Interrupted:</b> Please use /start and try again.</blockquote>",
-            reply_markup=get_main_reply_keyboard(update.effective_user.id),
+            reply_markup=get_main_reply_keyboard(user_id),
             parse_mode="HTML"
         )
         return ConversationHandler.END
-
-    raw_text = update.message.text.strip() if (update.message and update.message.text) else ""
-    if is_cancellation_text(raw_text):
-        return await cancel_host(update, context)
 
     code_content = None
     if update.message.document:
@@ -1174,7 +1272,7 @@ async def host_bot_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Validate Python Syntax via AST
     valid, err_msg, lineno, line_text = validate_python_syntax(code_content)
     if not valid:
-        header = make_header_card("s ʏ ɴ ᴛ ᴀ x  ᴇ ʀ ʀ ᴏ ʀ  ᴅ ᴇ ᴛ ᴇ ᴄ ᴛ ᴇ ᴅ", "Code Validation Failed")
+        header = make_header_card("SYNTAX ERROR DETECTED", "Code Validation Failed")
         line_info = f"• <b>Line:</b> <code>{lineno}</code>\n" if lineno else ""
         code_snippet = f"\n<b>Error Snippet:</b>\n<pre><code class=\"language-python\">{html.escape(line_text)}</code></pre>" if line_text else ""
         safe_err = html.escape(err_msg or "Syntax error in Python script.")
@@ -1198,7 +1296,7 @@ async def host_bot_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if token == 'AUTO_DETECT':
         detected_token = extract_token_from_code(code_content)
         if not detected_token:
-            header = make_header_card("ɴ ᴏ  ᴛ ᴏ ᴋ ᴇ ɴ  ᴅ ᴇ ᴛ ᴇ ᴄ ᴛ ᴇ ᴅ", "Token Required")
+            header = make_header_card("NO TOKEN DETECTED", "Token Required")
             prompt_text = (
                 f"{header}\n\n"
                 "<blockquote>⚠️ <b>Auto-Detection Failed:</b> We could not detect any Telegram bot token in your script.</blockquote>\n\n"
@@ -1219,7 +1317,7 @@ async def host_bot_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         is_valid, bot_uname, v_err = await verify_telegram_token(detected_token)
         if not is_valid:
-            header = make_header_card("ᴛ ᴏ ᴋ ᴇ ɴ  ᴠ ᴀ ʟ ɪ ᴅ ᴀ ᴛ ɪ ᴏ ɴ  ғ ᴀ ɪ ʟ ᴇ ᴅ", "Auto-Detected Token Error")
+            header = make_header_card("TOKEN VALIDATION FAILED", "Auto-Detected Token Error")
             safe_verr = html.escape(v_err or "Telegram rejected token.")
             token_preview = html.escape(detected_token[:10] + "..." if len(detected_token) > 10 else detected_token)
             err_card = (
@@ -1264,7 +1362,7 @@ async def host_bot_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
         proc = bot_manager.active_processes.get(bot_id)
         pid_str = str(proc.pid) if (proc and proc.returncode is None) else "Active"
 
-        header = make_header_card("ʙ ᴏ ᴛ  ɪ ɴ s ᴘ ᴇ ᴄ ᴛ ᴏ ʀ", "Instance Live & Active")
+        header = make_header_card("BOT INSPECTOR", "Instance Live & Active")
         safe_bot_name = html.escape(bot_name)
         safe_msg = html.escape(msg)
 
@@ -1289,7 +1387,7 @@ async def host_bot_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         await update.message.reply_text(resp_text, reply_markup=get_bot_detail_reply_keyboard(bot_id, "RUNNING"), parse_mode="HTML")
     else:
-        header = make_header_card("s ᴛ ᴀ ʀ ᴛ ᴜ ᴘ  ғ ᴀ ɪ ʟ ᴜ ʀ ᴇ", "Instance Error Detected")
+        header = make_header_card("STARTUP FAILURE", "Instance Error Detected")
         logs = bot_manager.get_logs(bot_id, lines=25)
         if not logs or "No console logs" in logs:
             logs = msg
@@ -1318,7 +1416,7 @@ async def host_bot_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cancel_host(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     user_id = update.effective_user.id
-    header = make_header_card("ᴅ ᴇ ᴘ ʟ ᴏ ʏ ᴍ ᴇ ɴ ᴛ  ᴄ ᴀ ɴ ᴄ ᴇ ʟ ʟ ᴇ ᴅ", "Hosting Setup Aborted")
+    header = make_header_card("DEPLOYMENT CANCELLED", "Hosting Setup Aborted")
     text = (
         f"{header}\n\n"
         "<blockquote>❌ Bot hosting wizard cancelled. No resources were provisioned.</blockquote>"
@@ -1396,20 +1494,25 @@ async def user_text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     db_user = database.get_or_create_user(user_id)
     if db_user['is_banned']:
         msg = (
-            f"{make_header_card('ᴀ ᴄ ᴄ ᴏ ᴜ ɴ ᴛ  s ᴜ s ᴘ ᴇ ɴ ᴅ ᴇ ᴅ', 'Access Denied')}\n\n"
+            f"{make_header_card('ACCOUNT SUSPENDED', 'Access Denied')}\n\n"
             "<blockquote>🚫 <b>Access Restricted:</b> Your account has been suspended.</blockquote>"
         )
         await update.message.reply_text(msg, parse_mode="HTML")
         return True
 
     # Back / Home navigation
-    if text in ["🏠 Main Menu", "🔙 Back to Main Menu", "🔄 Refresh"]:
+    if text in ["🏠 Main Menu", "🔙 Back to Main Menu", "🔄 Refresh", "/start", "/menu"]:
         await start_command(update, context)
         return True
 
     # My Bots & Back to My Bots
-    if text in ["🤖 My Hosted Bots", "🔙 Back to My Bots"]:
+    if text in ["🤖 My Hosted Bots", "🔙 Back to My Bots", "/mybots", "/bots"]:
         await show_my_bots(update, context, page=0)
+        return True
+
+    # Host New Bot
+    if text in ["➕ Host New Bot", "➕ Host Custom Bot", "➕ Host Another Bot"]:
+        await host_bot_start(update, context)
         return True
 
     # Pagination
@@ -1423,17 +1526,17 @@ async def user_text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return True
 
     # Quick Template Deploy
-    if text == "⚡ Quick Template Deploy":
+    if text in ["⚡ Quick Template Deploy", "/templates"]:
         await show_templates_menu(update, context)
         return True
 
     # Account & Slots
-    if text == "📊 My Account & Slots":
+    if text in ["📊 My Account & Slots", "/account"]:
         await show_account_info(update, context)
         return True
 
     # Help & Guidelines
-    if text == "❓ Help & Guidelines":
+    if text in ["❓ Help & Guidelines", "/help"]:
         await show_help(update, context)
         return True
 

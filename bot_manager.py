@@ -189,7 +189,7 @@ class BotProcessManager:
         if bot_id in self.log_buffers and self.log_buffers[bot_id]:
             recent = list(self.log_buffers[bot_id])[-lines:]
             if recent:
-                header = f"=== Live Logs for #{bot_id} (Last {len(recent)} lines) ==="
+                header = f"Live Logs for #{bot_id} (Last {len(recent)} lines)\n━━━━━━━━━━━━━━━━━━━━━━"
                 return f"{header}\n" + "\n".join(recent)
 
         # Fallback to reading file
@@ -200,7 +200,7 @@ class BotProcessManager:
                     file_lines = [line.rstrip() for line in f.readlines() if line.strip()]
                     if file_lines:
                         recent = file_lines[-lines:]
-                        header = f"=== Logs for #{bot_id} (Last {len(recent)} lines) ==="
+                        header = f"Logs for #{bot_id} (Last {len(recent)} lines)\n━━━━━━━━━━━━━━━━━━━━━━"
                         return f"{header}\n" + "\n".join(recent)
             except Exception as e:
                 return f"Error reading log file: {e}"
