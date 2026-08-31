@@ -6,7 +6,7 @@ import logging
 import httpx
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
-from config import ADMIN_ID, DATA_DIR
+from config import ADMIN_ID, DATA_DIR, BOT_TOKEN
 import database
 from bot_manager import bot_manager
 from templates import TEMPLATES
@@ -23,7 +23,7 @@ async def verify_telegram_token(token: str) -> tuple[bool, str, str]:
     cleaned = sanitize_token(token)
     if not re.match(r"^\d{6,14}:[a-zA-Z0-9_-]{30,45}$", cleaned):
         return False, "", "Invalid token format. Please check and copy the full token from @BotFather."
-    
+
     url = f"https://api.telegram.org/bot{cleaned}/getMe"
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -87,17 +87,18 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(text, reply_markup=get_main_menu_keyboard(user.id), parse_mode="Markdown")
 
-async def user_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def user_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, data_override: str = None):
     query = update.callback_query
     user_id = query.from_user.id
-    data = query.data
+    data = data_override if data_override is not None else query.data
 
     db_user = database.get_or_create_user(user_id)
     if db_user['is_banned']:
         await query.answer("🚫 Account Suspended", show_alert=True)
         return
 
-    await query.answer()
+    if data_override is None:
+        await query.answer()
 
     if data == "user_menu":
         await start_command(update, context)
@@ -240,8 +241,7 @@ async def user_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
             success, msg = await bot_manager.restart_bot(bot_id)
             await query.answer(msg, show_alert=True)
 
-        query.data = f"user_bot_view_{bot_id}"
-        await user_callback_handler(update, context)
+        await user_callback_handler(update, context, data_override=f"user_bot_view_{bot_id}")
 
     elif data.startswith("ubot_logs_"):
         bot_id = data.split("_")[2]
@@ -275,8 +275,7 @@ async def user_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
             database.delete_bot_record(bot_id)
             await query.answer("Bot deleted successfully.", show_alert=True)
 
-        query.data = "user_my_bots_0"
-        await user_callback_handler(update, context)
+        await user_callback_handler(update, context, data_override="user_my_bots_0")
 
     elif data == "user_templates":
         text = (
@@ -318,6 +317,7 @@ async def template_select_start(update: Update, context: ContextTypes.DEFAULT_TY
 
     await query.answer()
     context.user_data['deploy_template_key'] = tpl_key
+    context.user_data['active_flow'] = 'tpl'
     tinfo = TEMPLATES[tpl_key]
 
     text = (
@@ -333,11 +333,19 @@ async def template_select_start(update: Update, context: ContextTypes.DEFAULT_TY
     return TPL_TOKEN
 
 async def template_token_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get('active_flow') != 'tpl':
+        await update.message.reply_text("⚠️ This template session expired. Please open ⚡ Quick Template Deploy again from /start.")
+        return ConversationHandler.END
+
     user_id = update.effective_user.id
     raw_token = update.message.text.strip()
     token = sanitize_token(raw_token)
     tpl_key = context.user_data.get('deploy_template_key', 'echo_bot')
     tinfo = TEMPLATES.get(tpl_key, TEMPLATES['echo_bot'])
+
+    if token == BOT_TOKEN:
+        await update.message.reply_text("⚠️ You cannot host a bot using this platform's own token. Create a new bot with @BotFather and send its token:")
+        return TPL_TOKEN
 
     is_valid, bot_uname, err_msg = await verify_telegram_token(token)
     if not is_valid:
@@ -408,6 +416,7 @@ async def host_bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     await query.answer()
+    context.user_data['active_flow'] = 'host'
     text = (
         "➕ **Host a New Bot (Step 1/3)**\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -419,6 +428,10 @@ async def host_bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return NAME
 
 async def host_bot_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get('active_flow') != 'host':
+        await update.message.reply_text("⚠️ This step was interrupted by another action. Please use /start and try again.")
+        return ConversationHandler.END
+
     bot_name = update.message.text.strip()
     if len(bot_name) < 2 or len(bot_name) > 30:
         await update.message.reply_text("⚠️ Name must be between 2 and 30 characters. Please enter a valid name:")
@@ -436,8 +449,16 @@ async def host_bot_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return TOKEN
 
 async def host_bot_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get('active_flow') != 'host':
+        await update.message.reply_text("⚠️ This step was interrupted by another action. Please resend your bot token to continue.")
+        return ConversationHandler.END
+
     raw_token = update.message.text.strip()
     token = sanitize_token(raw_token)
+
+    if token == BOT_TOKEN:
+        await update.message.reply_text("⚠️ You cannot host a bot using this platform's own token. Create a new bot with @BotFather and send its token:")
+        return TOKEN
 
     is_valid, bot_uname, err_msg = await verify_telegram_token(token)
     if not is_valid:
@@ -459,6 +480,10 @@ async def host_bot_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return CODE
 
 async def host_bot_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get('active_flow') != 'host':
+        await update.message.reply_text("⚠️ This step was interrupted by another action. Please use /start and try again.")
+        return ConversationHandler.END
+
     user_id = update.effective_user.id
     bot_name = context.user_data.get('new_bot_name', 'My Bot')
     bot_token = context.user_data.get('new_bot_token', '')

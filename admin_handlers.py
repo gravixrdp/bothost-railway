@@ -58,16 +58,17 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="Markdown")
 
-async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, data_override: str = None):
     query = update.callback_query
     user_id = query.from_user.id
-    data = query.data
+    data = data_override if data_override is not None else query.data
 
     if not is_admin(user_id):
         await query.answer("⛔ Access Denied", show_alert=True)
         return
 
-    await query.answer()
+    if data_override is None:
+        await query.answer()
 
     if data == "admin_refresh" or data == "admin_panel":
         await admin_panel(update, context)
@@ -76,7 +77,7 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
     elif data == "admin_stats":
         users = database.get_all_users()
         bots = database.get_all_hosted_bots()
-        
+
         running_bots = sum(1 for b in bots if b['status'] == 'RUNNING')
         stopped_bots = sum(1 for b in bots if b['status'] == 'STOPPED')
         failed_bots = sum(1 for b in bots if b['status'] in ['FAILED', 'CRASHED'])
@@ -161,8 +162,7 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
                 await bot_manager.stop_bot(b['bot_id'])
         await query.answer(f"User {'banned' if new_ban else 'unbanned'} successfully!", show_alert=True)
         # return to user detail
-        query.data = f"admin_uinfo_{target_uid}"
-        await handle_admin_callback(update, context)
+        await handle_admin_callback(update, context, data_override=f"admin_uinfo_{target_uid}")
 
     elif data.startswith("admin_inc_slot_"):
         target_uid = int(data.split("_")[3])
@@ -170,8 +170,7 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         new_slots = target_user.get('max_slots', 3) + 2
         database.set_user_slots(target_uid, new_slots)
         await query.answer(f"Slots increased to {new_slots}!", show_alert=True)
-        query.data = f"admin_uinfo_{target_uid}"
-        await handle_admin_callback(update, context)
+        await handle_admin_callback(update, context, data_override=f"admin_uinfo_{target_uid}")
 
     elif data.startswith("admin_bots_"):
         page = int(data.split("_")[2])
@@ -255,12 +254,10 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
                     shutil.rmtree(script_dir, ignore_errors=True)
             database.delete_bot_record(bot_id)
             await query.answer("Bot forcibly deleted!", show_alert=True)
-            query.data = "admin_bots_0"
-            await handle_admin_callback(update, context)
+            await handle_admin_callback(update, context, data_override="admin_bots_0")
             return
 
-        query.data = f"admin_binfo_{bot_id}"
-        await handle_admin_callback(update, context)
+        await handle_admin_callback(update, context, data_override=f"admin_binfo_{bot_id}")
 
     elif data.startswith("admin_blogs_"):
         bot_id = data.split("_")[2]
