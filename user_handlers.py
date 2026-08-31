@@ -4,7 +4,7 @@ import shutil
 import re
 import logging
 import httpx
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ContextTypes, ConversationHandler
 from config import ADMIN_ID, DATA_DIR, BOT_TOKEN
 import database
@@ -38,6 +38,17 @@ async def verify_telegram_token(token: str) -> tuple[bool, str, str]:
         logger.warning(f"Could not reach Telegram API for token validation: {e}")
         return True, "Bot", ""
 
+def get_main_reply_keyboard(user_id: int):
+    keyboard = []
+    if user_id == ADMIN_ID:
+        keyboard.append([KeyboardButton("👑 Open Admin Panel")])
+    keyboard.extend([
+        [KeyboardButton("➕ Host New Bot"), KeyboardButton("🤖 My Hosted Bots")],
+        [KeyboardButton("⚡ Quick Template Deploy"), KeyboardButton("📊 My Account & Slots")],
+        [KeyboardButton("❓ Help & Guidelines"), KeyboardButton("🔄 Refresh")]
+    ])
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
 def get_main_menu_keyboard(user_id: int):
     keyboard = [
         [
@@ -62,7 +73,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db_user = database.get_or_create_user(user.id, user.username or "", user.first_name or "")
 
     if db_user['is_banned']:
-        await update.message.reply_text("🚫 Your account has been suspended by the administrator.")
+        if update.callback_query:
+            await update.callback_query.answer("🚫 Account Suspended", show_alert=True)
+        else:
+            await update.message.reply_text("🚫 Your account has been suspended by the administrator.")
         return
 
     maint = database.get_setting("maintenance_mode", "0") == "1"
@@ -78,14 +92,167 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• Real-time log viewer, uptime monitoring & auto-restart\n"
         "• Complete control with start, stop, restart & delete options\n"
         f"{maint_notice}\n"
-        "Choose an action from the menu below to get started:"
+        "Choose an action from the keyboard menu below to get started:"
     )
 
+    reply_kb = get_main_reply_keyboard(user.id)
     if update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.edit_message_text(text, reply_markup=get_main_menu_keyboard(user.id), parse_mode="Markdown")
+        await update.callback_query.message.reply_text(text, reply_markup=reply_kb, parse_mode="Markdown")
     else:
-        await update.message.reply_text(text, reply_markup=get_main_menu_keyboard(user.id), parse_mode="Markdown")
+        await update.message.reply_text(text, reply_markup=reply_kb, parse_mode="Markdown")
+
+async def show_my_bots(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
+    user = update.effective_user
+    user_id = user.id
+    db_user = database.get_or_create_user(user_id)
+    if db_user['is_banned']:
+        if update.callback_query:
+            await update.callback_query.answer("🚫 Account Suspended", show_alert=True)
+        else:
+            await update.message.reply_text("🚫 Your account has been suspended.")
+        return
+
+    user_bots = database.get_user_bots(user_id)
+    per_page = 5
+    total_pages = max(1, (len(user_bots) + per_page - 1) // per_page)
+    curr_bots = user_bots[page * per_page : (page + 1) * per_page]
+
+    if not user_bots:
+        text = (
+            "🤖 **My Hosted Bots**\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "You haven't hosted any bots yet!\n\n"
+            "Deploy a custom script or a 1-click template to get started:"
+        )
+        keyboard = [
+            [
+                InlineKeyboardButton("➕ Host Custom Bot", callback_data="user_host_start"),
+                InlineKeyboardButton("⚡ Quick Template", callback_data="user_templates")
+            ]
+        ]
+        if update.callback_query:
+            await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        else:
+            await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        return
+
+    text = f"🤖 **My Hosted Bots** (Page {page + 1}/{total_pages})\n━━━━━━━━━━━━━━━━━━━━━━\n"
+    keyboard = []
+    for b in curr_bots:
+        status_emoji = "🟢" if b['status'] == "RUNNING" else ("🔴" if b['status'] in ["FAILED", "CRASHED"] else "⚪")
+        keyboard.append([InlineKeyboardButton(f"{status_emoji} {b['bot_name']}", callback_data=f"user_bot_view_{b['bot_id']}")])
+
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"user_my_bots_{page - 1}"))
+    if page < total_pages - 1:
+        nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"user_my_bots_{page + 1}"))
+    if nav_row:
+        keyboard.append(nav_row)
+
+    keyboard.append([InlineKeyboardButton("➕ Host Another Bot", callback_data="user_host_start")])
+
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    else:
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+async def show_account_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    user_id = user.id
+    db_user = database.get_or_create_user(user_id)
+    if db_user['is_banned']:
+        if update.callback_query:
+            await update.callback_query.answer("🚫 Account Suspended", show_alert=True)
+        else:
+            await update.message.reply_text("🚫 Your account has been suspended.")
+        return
+
+    user_bots = database.get_user_bots(user_id)
+    max_slots = db_user.get('max_slots', 3)
+    running_cnt = sum(1 for b in user_bots if b['status'] == 'RUNNING')
+
+    text = (
+        "📊 **My Account & Resource Quota**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 **User ID:** `{user_id}`\n"
+        f"🏷️ **Username:** @{user.username or 'N/A'}\n"
+        f"📦 **Total Slots:** `{max_slots}`\n"
+        f"🤖 **Hosted Bots:** `{len(user_bots)} / {max_slots}`\n"
+        f"🟢 **Active Bots:** `{running_cnt}`\n"
+        f"⚪ **Available Slots:** `{max(0, max_slots - len(user_bots))}`\n\n"
+        "💡 Need extra bot slots? Contact the platform administrator."
+    )
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, parse_mode="Markdown")
+    else:
+        await update.message.reply_text(text, parse_mode="Markdown")
+
+async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    user_id = user.id
+    db_user = database.get_or_create_user(user_id)
+    if db_user['is_banned']:
+        if update.callback_query:
+            await update.callback_query.answer("🚫 Account Suspended", show_alert=True)
+        else:
+            await update.message.reply_text("🚫 Your account has been suspended.")
+        return
+
+    text = (
+        "❓ **Gravix-Host Guidelines & Help**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        "1️⃣ **Get a Bot Token:**\n"
+        "   • Open @BotFather on Telegram.\n"
+        "   • Send `/newbot` and follow instructions to get your API Token.\n\n"
+        "2️⃣ **How to Host a Bot:**\n"
+        "   • Click **➕ Host New Bot** or **⚡ Quick Template Deploy** in the keyboard menu.\n"
+        "   • Enter your Bot Token from @BotFather.\n"
+        "   • Upload your Python `.py` script or select a pre-built template.\n\n"
+        "3️⃣ **Supported Python Libraries:**\n"
+        "   • `python-telegram-bot`, `telebot (pyTelegramBotAPI)`, `aiogram`, `requests`, `aiohttp`, `httpx`.\n\n"
+        "4️⃣ **Managing Bots:**\n"
+        "   • Access logs, restart, and monitor status in **🤖 My Hosted Bots**."
+    )
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, parse_mode="Markdown")
+    else:
+        await update.message.reply_text(text, parse_mode="Markdown")
+
+async def show_templates_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    user_id = user.id
+    db_user = database.get_or_create_user(user_id)
+    if db_user['is_banned']:
+        if update.callback_query:
+            await update.callback_query.answer("🚫 Account Suspended", show_alert=True)
+        else:
+            await update.message.reply_text("🚫 Your account has been suspended.")
+        return
+
+    maint = database.get_setting("maintenance_mode", "0") == "1"
+    if maint and user_id != ADMIN_ID:
+        msg = "⚠️ Platform is under maintenance. New bot deployments are paused."
+        if update.callback_query:
+            await update.callback_query.answer(msg, show_alert=True)
+        else:
+            await update.message.reply_text(msg)
+        return
+
+    text = (
+        "⚡ **Quick 1-Click Bot Templates**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        "Select a pre-built bot template below to instantly deploy:\n"
+    )
+    keyboard = []
+    for key, tinfo in TEMPLATES.items():
+        keyboard.append([InlineKeyboardButton(tinfo['name'], callback_data=f"deploy_tpl_{key}")])
+
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    else:
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def user_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, data_override: str = None):
     query = update.callback_query
@@ -105,85 +272,17 @@ async def user_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     elif data == "user_account":
-        user_bots = database.get_user_bots(user_id)
-        max_slots = db_user.get('max_slots', 3)
-        running_cnt = sum(1 for b in user_bots if b['status'] == 'RUNNING')
-
-        text = (
-            "📊 **My Account & Resource Quota**\n"
-            "━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"👤 **User ID:** `{user_id}`\n"
-            f"🏷️ **Username:** @{query.from_user.username or 'N/A'}\n"
-            f"📦 **Total Slots:** `{max_slots}`\n"
-            f"🤖 **Hosted Bots:** `{len(user_bots)} / {max_slots}`\n"
-            f"🟢 **Active Bots:** `{running_cnt}`\n"
-            f"⚪ **Available Slots:** `{max(0, max_slots - len(user_bots))}`\n\n"
-            "💡 Need extra bot slots? Contact the platform administrator."
-        )
-        keyboard = [[InlineKeyboardButton("🔙 Main Menu", callback_data="user_menu")]]
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await show_account_info(update, context)
+        return
 
     elif data == "user_help":
-        text = (
-            "❓ **Gravix-Host Guidelines & Help**\n"
-            "━━━━━━━━━━━━━━━━━━━━━━\n"
-            "1️⃣ **Get a Bot Token:**\n"
-            "   • Open @BotFather on Telegram.\n"
-            "   • Send `/newbot` and follow instructions to get your API Token.\n\n"
-            "2️⃣ **How to Host a Bot:**\n"
-            "   • Click **➕ Host New Bot** or **⚡ Quick Template Deploy**.\n"
-            "   • Enter your Bot Token from @BotFather.\n"
-            "   • Upload your Python `.py` script or select a pre-built template.\n\n"
-            "3️⃣ **Supported Python Libraries:**\n"
-            "   • `python-telegram-bot`, `telebot (pyTelegramBotAPI)`, `aiogram`, `requests`, `aiohttp`, `httpx`.\n\n"
-            "4️⃣ **Managing Bots:**\n"
-            "   • Access logs, restart, and monitor status in **🤖 My Hosted Bots**."
-        )
-        keyboard = [[InlineKeyboardButton("🔙 Main Menu", callback_data="user_menu")]]
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await show_help(update, context)
+        return
 
     elif data.startswith("user_my_bots_"):
         page = int(data.split("_")[3])
-        user_bots = database.get_user_bots(user_id)
-        per_page = 5
-        total_pages = max(1, (len(user_bots) + per_page - 1) // per_page)
-        curr_bots = user_bots[page * per_page : (page + 1) * per_page]
-
-        if not user_bots:
-            text = (
-                "🤖 **My Hosted Bots**\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
-                "You haven't hosted any bots yet!\n\n"
-                "Deploy a custom script or a 1-click template to get started:"
-            )
-            keyboard = [
-                [
-                    InlineKeyboardButton("➕ Host Custom Bot", callback_data="user_host_start"),
-                    InlineKeyboardButton("⚡ Quick Template", callback_data="user_templates")
-                ],
-                [InlineKeyboardButton("🔙 Main Menu", callback_data="user_menu")]
-            ]
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-            return
-
-        text = f"🤖 **My Hosted Bots** (Page {page + 1}/{total_pages})\n━━━━━━━━━━━━━━━━━━━━━━\n"
-        keyboard = []
-        for b in curr_bots:
-            status_emoji = "🟢" if b['status'] == "RUNNING" else ("🔴" if b['status'] in ["FAILED", "CRASHED"] else "⚪")
-            keyboard.append([InlineKeyboardButton(f"{status_emoji} {b['bot_name']}", callback_data=f"user_bot_view_{b['bot_id']}")])
-
-        nav_row = []
-        if page > 0:
-            nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"user_my_bots_{page - 1}"))
-        if page < total_pages - 1:
-            nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"user_my_bots_{page + 1}"))
-        if nav_row:
-            keyboard.append(nav_row)
-
-        keyboard.append([InlineKeyboardButton("➕ Host Another Bot", callback_data="user_host_start")])
-        keyboard.append([InlineKeyboardButton("🔙 Main Menu", callback_data="user_menu")])
-
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await show_my_bots(update, context, page=page)
+        return
 
     elif data.startswith("user_bot_view_"):
         bot_id = data.split("_")[3]
@@ -387,35 +486,48 @@ async def template_token_received(update: Update, context: ContextTypes.DEFAULT_
 
 async def cancel_tpl(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
+    user_id = update.effective_user.id
     if update.callback_query:
         await update.callback_query.answer("Template deployment cancelled.")
         await start_command(update, context)
     else:
-        await update.message.reply_text("❌ Template deployment cancelled.", reply_markup=get_main_menu_keyboard(update.effective_user.id))
+        await update.message.reply_text("❌ Template deployment cancelled.", reply_markup=get_main_reply_keyboard(user_id))
     return ConversationHandler.END
 
 # Custom Bot Hosting Flow
 async def host_bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user_id = query.from_user.id
+    user = update.effective_user
+    user_id = user.id
 
     db_user = database.get_or_create_user(user_id)
     if db_user['is_banned']:
-        await query.answer("🚫 Account Suspended", show_alert=True)
+        if update.callback_query:
+            await update.callback_query.answer("🚫 Account Suspended", show_alert=True)
+        else:
+            await update.message.reply_text("🚫 Your account has been suspended by the administrator.")
         return ConversationHandler.END
 
     maint = database.get_setting("maintenance_mode", "0") == "1"
     if maint and user_id != ADMIN_ID:
-        await query.answer("⚠️ Platform is under maintenance. New bot deployments are paused.", show_alert=True)
+        if update.callback_query:
+            await update.callback_query.answer("⚠️ Platform is under maintenance. New bot deployments are paused.", show_alert=True)
+        else:
+            await update.message.reply_text("⚠️ Platform is under maintenance. New bot deployments are paused.")
         return ConversationHandler.END
 
     user_bots = database.get_user_bots(user_id)
     max_slots = db_user.get('max_slots', 3)
     if len(user_bots) >= max_slots:
-        await query.answer(f"⚠️ Slot Limit Reached ({len(user_bots)}/{max_slots} bots). Please delete an existing bot or contact Admin.", show_alert=True)
+        msg = f"⚠️ Slot Limit Reached ({len(user_bots)}/{max_slots} bots). Please delete an existing bot or contact Admin."
+        if update.callback_query:
+            await update.callback_query.answer(msg, show_alert=True)
+        else:
+            await update.message.reply_text(msg)
         return ConversationHandler.END
 
-    await query.answer()
+    if update.callback_query:
+        await update.callback_query.answer()
+
     context.user_data['active_flow'] = 'host'
     text = (
         "➕ **Host a New Bot (Step 1/3)**\n"
@@ -424,7 +536,10 @@ async def host_bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "*(Send text or /cancel to abort)*"
     )
     keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data="cancel_host")]]
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    else:
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return NAME
 
 async def host_bot_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -534,9 +649,10 @@ async def host_bot_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cancel_host(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
+    user_id = update.effective_user.id
     if update.callback_query:
         await update.callback_query.answer("Action cancelled.")
         await start_command(update, context)
     else:
-        await update.message.reply_text("❌ Bot hosting process cancelled.", reply_markup=get_main_menu_keyboard(update.effective_user.id))
+        await update.message.reply_text("❌ Bot hosting process cancelled.", reply_markup=get_main_reply_keyboard(user_id))
     return ConversationHandler.END

@@ -22,6 +22,10 @@ from admin_handlers import (
 )
 from user_handlers import (
     start_command,
+    show_my_bots,
+    show_account_info,
+    show_help,
+    show_templates_menu,
     user_callback_handler,
     host_bot_start,
     host_bot_name,
@@ -66,7 +70,7 @@ async def post_init(application):
     logger.info(f"Gravix-Host initialized. Auto-resumed {resumed} bot(s).")
 
 async def general_message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("\U0001F4A1 Please use the interactive menu buttons or /start to interact with Gravix-Host.")
+    await update.message.reply_text("\U0001F4A1 Please use the keyboard menu buttons below or /start to interact with Gravix-Host.")
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Exception while handling an update: {context.error}")
@@ -95,7 +99,10 @@ def main():
     )
 
     host_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(host_bot_start, pattern="^user_host_start$")],
+        entry_points=[
+            CallbackQueryHandler(host_bot_start, pattern="^user_host_start$"),
+            MessageHandler(filters.Regex("^(➕ Host New Bot|➕ Host Custom Bot|➕ Host Another Bot)$"), host_bot_start)
+        ],
         states={
             NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, host_bot_name)],
             TOKEN: [MessageHandler(filters.TEXT & ~filters.COMMAND, host_bot_token)],
@@ -106,6 +113,7 @@ def main():
         },
         fallbacks=[
             CommandHandler("cancel", cancel_host),
+            MessageHandler(filters.Regex("^(❌ Cancel|/cancel|cancel)$"), cancel_host),
             CallbackQueryHandler(cancel_host, pattern="^(cancel_host|user_menu)$")
         ],
         conversation_timeout=CONV_TIMEOUT,
@@ -119,6 +127,7 @@ def main():
         },
         fallbacks=[
             CommandHandler("cancel", cancel_tpl),
+            MessageHandler(filters.Regex("^(❌ Cancel|/cancel|cancel)$"), cancel_tpl),
             CallbackQueryHandler(cancel_tpl, pattern="^(cancel_tpl|user_menu)$")
         ],
         conversation_timeout=CONV_TIMEOUT,
@@ -131,6 +140,14 @@ def main():
 
     application.add_handler(host_conv)
     application.add_handler(tpl_conv)
+
+    # Persistent reply keyboard button handlers
+    application.add_handler(MessageHandler(filters.Regex("^👑 Open Admin Panel$"), admin_panel))
+    application.add_handler(MessageHandler(filters.Regex("^🤖 My Hosted Bots$"), show_my_bots))
+    application.add_handler(MessageHandler(filters.Regex("^⚡ Quick Template Deploy$"), show_templates_menu))
+    application.add_handler(MessageHandler(filters.Regex("^📊 My Account & Slots$"), show_account_info))
+    application.add_handler(MessageHandler(filters.Regex("^❓ Help & Guidelines$"), show_help))
+    application.add_handler(MessageHandler(filters.Regex("^🔄 Refresh$"), start_command))
 
     application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^admin_"))
     application.add_handler(CallbackQueryHandler(user_callback_handler))

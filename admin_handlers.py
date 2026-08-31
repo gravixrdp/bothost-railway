@@ -19,7 +19,10 @@ def is_admin(user_id: int) -> bool:
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_admin(user_id):
-        await update.message.reply_text("⛔ Access Denied: You are not authorized to view the Admin Panel.")
+        if update.callback_query:
+            await update.callback_query.answer("⛔ Access Denied: You are not authorized to view the Admin Panel.", show_alert=True)
+        else:
+            await update.message.reply_text("⛔ Access Denied: You are not authorized to view the Admin Panel.")
         return
 
     maint = database.get_setting("maintenance_mode", "0") == "1"
