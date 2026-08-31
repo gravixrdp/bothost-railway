@@ -17,7 +17,20 @@ import database
 from bot_manager import bot_manager
 from admin_handlers import (
     admin_panel,
+    admin_stats_handler,
+    admin_users_list_handler,
+    admin_user_detail_handler,
+    admin_user_action_handler,
+    admin_bots_list_handler,
+    admin_bot_detail_handler,
+    admin_bot_action_handler,
+    admin_fsub_list_handler,
+    admin_fsub_del_handler,
+    admin_toggle_maint_handler,
+    admin_broadcast_prompt_handler,
+    admin_exit_handler,
     handle_admin_callback,
+    handle_admin_text,
     broadcast_command,
     admin_fsub_conv
 )
@@ -27,7 +40,10 @@ from user_handlers import (
     show_account_info,
     show_help,
     show_templates_menu,
+    show_bot_details,
+    handle_bot_action,
     user_callback_handler,
+    user_text_router,
     host_bot_start,
     host_bot_name,
     host_bot_token,
@@ -39,7 +55,8 @@ from user_handlers import (
     NAME,
     TOKEN,
     CODE,
-    TPL_TOKEN
+    TPL_TOKEN,
+    get_main_reply_keyboard
 )
 
 logging.basicConfig(
@@ -71,10 +88,17 @@ async def post_init(application):
     logger.info(f"Gravix-Host initialized. Auto-resumed {resumed} bot(s).")
 
 async def general_message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("\U0001F4A1 Please use the keyboard menu buttons below or /start to interact with Gravix-Host.")
+    if not update.message or not update.message.text:
+        return
+    user_id = update.effective_user.id
+    if user_id == ADMIN_ID:
+        handled = await handle_admin_text(update, context)
+        if handled:
+            return
+    await user_text_router(update, context)
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    logger.error(f"Exception while handling an update: {context.error}")
+    logger.error(f"Exception while handling an update: {context.error}", exc_info=context.error)
 
 def main():
     if not BOT_TOKEN or BOT_TOKEN == "DISABLED":
@@ -99,6 +123,10 @@ def main():
         .build()
     )
 
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Conversation Handlers
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
     host_conv = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(host_bot_start, pattern="^user_host_start$"),
@@ -114,7 +142,7 @@ def main():
         },
         fallbacks=[
             CommandHandler("cancel", cancel_host),
-            MessageHandler(filters.Regex("^(❌ Cancel|/cancel|cancel)$"), cancel_host),
+            MessageHandler(filters.Regex("^(❌ Cancel|/cancel|cancel|🔙 Back to Main Menu)$"), cancel_host),
             CallbackQueryHandler(cancel_host, pattern="^(cancel_host|user_menu)$")
         ],
         conversation_timeout=CONV_TIMEOUT,
@@ -122,40 +150,86 @@ def main():
     )
 
     tpl_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(template_select_start, pattern="^deploy_tpl_")],
+        entry_points=[
+            CallbackQueryHandler(template_select_start, pattern="^deploy_tpl_"),
+            MessageHandler(filters.Regex("^(📢 Simple Echo & Info Bot|🛡️ Group Welcome Bot|📣 Broadcast Bot.*)$"), template_select_start)
+        ],
         states={
             TPL_TOKEN: [MessageHandler(filters.TEXT & ~filters.COMMAND, template_token_received)]
         },
         fallbacks=[
             CommandHandler("cancel", cancel_tpl),
-            MessageHandler(filters.Regex("^(❌ Cancel|/cancel|cancel)$"), cancel_tpl),
+            MessageHandler(filters.Regex("^(❌ Cancel|/cancel|cancel|🔙 Back to Main Menu)$"), cancel_tpl),
             CallbackQueryHandler(cancel_tpl, pattern="^(cancel_tpl|user_menu)$")
         ],
         conversation_timeout=CONV_TIMEOUT,
         per_message=False
     )
 
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Application Handler Registration
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    # 1. Primary Slash Command Handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("admin", admin_panel))
     application.add_handler(CommandHandler("broadcast", broadcast_command))
+    application.add_handler(CommandHandler("help", show_help))
+    application.add_handler(CommandHandler("mybots", show_my_bots))
 
+    # 2. Multi-Step Conversation Handlers
     application.add_handler(host_conv)
     application.add_handler(tpl_conv)
     application.add_handler(admin_fsub_conv)
 
-    # Persistent reply keyboard button handlers
-    application.add_handler(MessageHandler(filters.Regex("^👑 Open Admin Panel$"), admin_panel))
+    # 3. User Navigation & Primary Menus
+    application.add_handler(MessageHandler(filters.Regex("^(🔙 Back to Main Menu|🏠 Main Menu|🔄 Refresh)$"), start_command))
     application.add_handler(MessageHandler(filters.Regex("^🤖 My Hosted Bots$"), show_my_bots))
+    application.add_handler(MessageHandler(filters.Regex("^🔙 Back to My Bots$"), show_my_bots))
     application.add_handler(MessageHandler(filters.Regex("^⚡ Quick Template Deploy$"), show_templates_menu))
     application.add_handler(MessageHandler(filters.Regex("^📊 My Account & Slots$"), show_account_info))
     application.add_handler(MessageHandler(filters.Regex("^❓ Help & Guidelines$"), show_help))
-    application.add_handler(MessageHandler(filters.Regex("^🔄 Refresh$"), start_command))
 
+    # 4. User Bots Pagination, Details, & Actions
+    application.add_handler(MessageHandler(filters.Regex("^(⬅️ Prev Bots|Next Bots ➡️)$"), user_text_router))
+    application.add_handler(MessageHandler(filters.Regex(r"^(?:🟢|🔴|⚪)\s+.*\[#([a-zA-Z0-9_-]+)\]$"), show_bot_details))
+    application.add_handler(MessageHandler(filters.Regex(r"^(?:▶️ Start Bot|⏹️ Stop Bot|🔄 Restart Bot|📜 View Logs|🗑️ Delete Bot)\s+\[#([a-zA-Z0-9_-]+)\]$"), handle_bot_action))
+    application.add_handler(MessageHandler(filters.Regex(r"^(?:⚠️ Confirm Delete|❌ Cancel Delete)\s+\[#([a-zA-Z0-9_-]+)\]$"), handle_bot_action))
+
+    # 5. Admin Panel Open / Navigation / Stats
+    application.add_handler(MessageHandler(filters.Regex("^(👑 Open Admin Panel|🔄 Refresh Admin|🔙 Back to Admin|🏠 Back to Admin)$"), admin_panel))
+    application.add_handler(MessageHandler(filters.Regex("^🏠 Exit Admin$"), admin_exit_handler))
+    application.add_handler(MessageHandler(filters.Regex("^📊 System Stats$"), admin_stats_handler))
+
+    # 6. Admin Users Management
+    application.add_handler(MessageHandler(filters.Regex("^(👥 User Manager|🔙 Back to Users)$"), admin_users_list_handler))
+    application.add_handler(MessageHandler(filters.Regex("^(⬅️ Prev Users|Next Users ➡️)$"), handle_admin_text))
+    application.add_handler(MessageHandler(filters.Regex(r"^👤\s+.+\s+\(UID:\s*\d+\)$"), admin_user_detail_handler))
+    application.add_handler(MessageHandler(filters.Regex(r"^(?:🔓 Unban User|🚫 Ban User)\s+\[UID:\s*\d+\]$"), admin_user_action_handler))
+    application.add_handler(MessageHandler(filters.Regex(r"^➕ Add \+2 Slots\s+\[UID:\s*\d+\]$"), admin_user_action_handler))
+
+    # 7. Admin Bots Management
+    application.add_handler(MessageHandler(filters.Regex("^(🤖 All Hosted Bots|🔙 Back to All Bots)$"), admin_bots_list_handler))
+    application.add_handler(MessageHandler(filters.Regex("^(⬅️ Prev All Bots|Next All Bots ➡️)$"), handle_admin_text))
+    application.add_handler(MessageHandler(filters.Regex(r"^(?:▶️ Force Start|⏹️ Stop|🔄 Restart|📜 View Logs|🗑️ Force Delete)\s+\[#[a-zA-Z0-9_-]+\]$"), admin_bot_action_handler))
+
+    # 8. Admin Force-Sub Channel Management
+    application.add_handler(MessageHandler(filters.Regex("^(📢 Force-Sub Channels|🔙 Back to Force-Sub)$"), admin_fsub_list_handler))
+    application.add_handler(MessageHandler(filters.Regex("^(⬅️ Prev FSub|Next FSub ➡️)$"), handle_admin_text))
+    application.add_handler(MessageHandler(filters.Regex(r"^🗑️ Remove\s+.+\s+\[.+\]$"), admin_fsub_del_handler))
+
+    # 9. Admin Maintenance & Global Broadcast Announcement
+    application.add_handler(MessageHandler(filters.Regex(r"^⚙️ Toggle Maintenance.*"), admin_toggle_maint_handler))
+    application.add_handler(MessageHandler(filters.Regex("^(📢 Broadcast Announcement|📢 Broadcast Message)$"), admin_broadcast_prompt_handler))
+
+    # 10. Legacy Callback Query Handlers
     application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^admin_"))
     application.add_handler(CallbackQueryHandler(user_callback_handler))
 
+    # 11. General Fallback Text Router
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, general_message_router))
 
+    # 12. Global Error Handler
     application.add_error_handler(error_handler)
 
     application.run_polling(drop_pending_updates=True)

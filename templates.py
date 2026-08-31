@@ -185,3 +185,33 @@ if __name__ == '__main__':
 """
     }
 }
+
+
+def get_template_by_name(display_name: str) -> tuple[str, dict] | None:
+    """Lookup a template by its display name, emoji/title substring, or key.
+    Returns (key, template_dict) or None if not found.
+    """
+    if not display_name or not isinstance(display_name, str):
+        return None
+    name_clean = display_name.strip()
+
+    # 1. Exact match on display name
+    for key, tinfo in TEMPLATES.items():
+        if tinfo.get("name") == name_clean:
+            return key, tinfo
+
+    # 2. Case-insensitive / whitespace-stripped display name match
+    for key, tinfo in TEMPLATES.items():
+        if tinfo.get("name", "").strip().lower() == name_clean.lower():
+            return key, tinfo
+
+    # 3. Direct key match (e.g. 'echo_bot', 'welcome_bot', 'broadcast_bot')
+    if name_clean in TEMPLATES:
+        return name_clean, TEMPLATES[name_clean]
+
+    # 4. Substring match (e.g. matching 'Echo' or 'Welcome' or 'Broadcast')
+    for key, tinfo in TEMPLATES.items():
+        if name_clean.lower() in tinfo.get("name", "").lower() or name_clean.lower() in key.lower():
+            return key, tinfo
+
+    return None
