@@ -1,5 +1,6 @@
 import os
 import re
+import html
 import shutil
 import psutil
 import logging
@@ -25,17 +26,22 @@ A_FSUB_ID, A_FSUB_TITLE, A_FSUB_LINK = range(20, 23)
 def is_admin(user_id: int) -> bool:
     return user_id == ADMIN_ID
 
+def make_progress_bar(percent: float, length: int = 10) -> str:
+    """Generates an ultra-clean progress bar."""
+    filled = int(round((max(0.0, min(100.0, percent)) / 100.0) * length))
+    return "▰" * filled + "▱" * (length - filled)
+
 async def _send_admin_msg(update: Update, text: str, reply_markup=None):
-    """Helper to send reply keyboard response cleanly."""
+    """Helper to send reply keyboard response cleanly with HTML formatting."""
     if update.message:
-        await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="Markdown")
+        await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="HTML")
     elif update.callback_query:
         try:
             await update.callback_query.answer()
         except Exception:
             pass
         if update.callback_query.message:
-            await update.callback_query.message.reply_text(text, reply_markup=reply_markup, parse_mode="Markdown")
+            await update.callback_query.message.reply_text(text, reply_markup=reply_markup, parse_mode="HTML")
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 1. Admin Keyboard Generators
@@ -143,18 +149,28 @@ def get_admin_fsub_reply_keyboard(channels: list, page: int = 0) -> ReplyKeyboar
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_admin(user_id):
-        await _send_admin_msg(update, "⛔ Access Denied: You are not authorized to view the Admin Panel.")
+        await _send_admin_msg(update, "⛔ <b>Access Denied:</b> You are not authorized to view the Admin Panel.")
         return
 
     maint = database.get_setting("maintenance_mode", "0") == "1"
     maint_status = "🔴 ON" if maint else "🟢 OFF"
 
+    users = database.get_all_users()
+    bots = database.get_all_hosted_bots()
+    running_bots = sum(1 for b in bots if b.get('status') == 'RUNNING')
+
     text = (
-        "👑 **Gravix-Host — Central Admin Panel**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"👤 **Admin ID:** `{user_id}`\n"
-        f"⚙️ **Maintenance Mode:** {maint_status}\n\n"
-        "Select an option below to manage the platform:"
+        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
+        "│  👑 <b>ɢʀᴀᴠɪx-ʜᴏsᴛ ᴄᴇɴᴛʀᴀʟ ᴀᴅᴍɪɴ</b>\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        "<blockquote>"
+        f"👑 <b>Master Admin ID:</b> <code>{user_id}</code>\n"
+        f"⚙️ <b>Maintenance Mode:</b> <code>{maint_status}</code>\n"
+        f"👥 <b>Registered Users:</b> <code>{len(users)}</code>\n"
+        f"🤖 <b>Platform Bots:</b> <code>{running_bots} Active / {len(bots)} Total</code>"
+        "</blockquote>\n\n"
+        "⚡ <b>ᴄᴏɴᴛʀᴏʟ ᴘᴀɴᴇʟ ɴᴀᴠɪɢᴀᴛɪᴏɴ</b>\n"
+        "Select an administrative module from the keyboard menu below to inspect infrastructure, govern users, or manage child bot processes."
     )
     reply_markup = get_admin_reply_keyboard(maint_status)
     await _send_admin_msg(update, text, reply_markup=reply_markup)
@@ -162,7 +178,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def admin_stats_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_admin(user_id):
-        await _send_admin_msg(update, "⛔ Access Denied.")
+        await _send_admin_msg(update, "⛔ <b>Access Denied.</b>")
         return
 
     users = database.get_all_users()
@@ -177,18 +193,34 @@ async def admin_stats_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     data_path = DATA_DIR if os.path.exists(DATA_DIR) else "."
     disk = psutil.disk_usage(data_path)
 
+    cpu_bar = make_progress_bar(cpu_percent)
+    ram_bar = make_progress_bar(mem.percent)
+    disk_bar = make_progress_bar(disk.percent)
+
+    ram_used_mb = mem.used // (1024 * 1024)
+    ram_total_mb = mem.total // (1024 * 1024)
+    disk_free_gb = disk.free // (1024 * 1024 * 1024)
+    disk_total_gb = disk.total // (1024 * 1024 * 1024)
+
     text = (
-        "📊 **Gravix-Host Real-Time System Metrics**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"👥 **Total Registered Users:** `{len(users)}`\n"
-        f"🤖 **Total Hosted Bots:** `{len(bots)}`\n"
-        f"   ├ 🟢 Running: `{running_bots}`\n"
-        f"   ├ ⚪ Stopped: `{stopped_bots}`\n"
-        f"   └ 🔴 Failed/Crashed: `{failed_bots}`\n\n"
-        "🖥️ **Host Server Resources:**\n"
-        f"   ├ ⚡ CPU Usage: `{cpu_percent}%`\n"
-        f"   ├ 💾 RAM Usage: `{mem.percent}%` ({mem.used // (1024*1024)}MB / {mem.total // (1024*1024)}MB)\n"
-        f"   └ 💽 Disk Space: `{disk.percent}%` ({disk.free // (1024*1024*1024)}GB Free)\n"
+        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
+        "│  📊 <b>sʏsᴛᴇᴍ ᴛᴇʟᴇᴍᴇᴛʀʏ &amp; ᴍᴇᴛʀɪᴄs</b>\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        "<blockquote>"
+        "📊 <b>ᴘʟᴀᴛғᴏʀᴍ ᴏᴠᴇʀᴠɪᴇᴡ</b>\n"
+        f"👥 <b>Total Users:</b> <code>{len(users)}</code>\n"
+        f"🤖 <b>Total Hosted Bots:</b> <code>{len(bots)}</code>\n"
+        f"   ├ 🟢 Active: <code>{running_bots}</code>\n"
+        f"   ├ ⚪ Stopped: <code>{stopped_bots}</code>\n"
+        f"   └ 🔴 Failed/Crashed: <code>{failed_bots}</code>\n\n"
+        "🖥️ <b>ʜᴏsᴛ sᴇʀᴠᴇʀ ʀᴇsᴏᴜʀᴄᴇs</b>\n"
+        f"⚡ <b>CPU Load:</b> <code>{cpu_bar} {cpu_percent}%</code>\n"
+        f"💾 <b>RAM Usage:</b> <code>{ram_bar} {mem.percent}%</code>\n"
+        f"   └ <code>{ram_used_mb} MB / {ram_total_mb} MB</code>\n"
+        f"💽 <b>Disk Allocation:</b> <code>{disk_bar} {disk.percent}%</code>\n"
+        f"   └ Free: <code>{disk_free_gb} GB</code> | Total: <code>{disk_total_gb} GB</code>"
+        "</blockquote>\n\n"
+        "💡 <i>Telemetry metrics sampled in real-time from the master container environment.</i>"
     )
     reply_markup = ReplyKeyboardMarkup([[KeyboardButton("🔙 Back to Admin")]], resize_keyboard=True)
     await _send_admin_msg(update, text, reply_markup=reply_markup)
@@ -196,7 +228,7 @@ async def admin_stats_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def admin_users_list_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
     user_id = update.effective_user.id
     if not is_admin(user_id):
-        await _send_admin_msg(update, "⛔ Access Denied.")
+        await _send_admin_msg(update, "⛔ <b>Access Denied.</b>")
         return
 
     users = database.get_all_users()
@@ -206,24 +238,41 @@ async def admin_users_list_handler(update: Update, context: ContextTypes.DEFAULT
     context.user_data['admin_users_page'] = curr_page
     curr_users = users[curr_page * per_page : (curr_page + 1) * per_page]
 
-    text = f"👥 **User Directory** (Page {curr_page + 1}/{total_pages})\n━━━━━━━━━━━━━━━━━━━━━━\n"
-    if not users:
-        text += "ℹ️ *No users registered yet.*\n"
-    else:
-        for idx, u in enumerate(curr_users, start=curr_page * per_page + 1):
-            banned_tag = " `[BANNED]`" if u.get('is_banned') else ""
-            uname = f"@{u['username']}" if u.get('username') else (u.get('first_name') or "No-Name")
-            slots = u.get('max_slots', 3)
-            text += f"{idx}. **{uname}** (UID: `{u['user_id']}`){banned_tag}\n   └ Slots: `{slots}` | Joined: `{u.get('joined_at', 'N/A')[:10]}`\n"
+    text = (
+        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
+        f"│  👥 <b>ᴜsᴇʀ ᴅɪʀᴇᴄᴛᴏʀʏ (Page {curr_page + 1}/{total_pages})</b>\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+    )
 
-    text += "\n💡 Tap a user button below to view details and manage permissions:"
+    if not users:
+        text += "<blockquote><i>No registered users found in the database.</i></blockquote>\n"
+    else:
+        text += "<blockquote>"
+        entries = []
+        for idx, u in enumerate(curr_users, start=curr_page * per_page + 1):
+            banned_badge = " <code>[BANNED]</code>" if u.get('is_banned') else ""
+            raw_uname = u.get('username')
+            if raw_uname:
+                uname = f"@{html.escape(raw_uname)}"
+            else:
+                raw_fname = u.get('first_name') or f"User_{u['user_id']}"
+                uname = html.escape(raw_fname)
+            slots = u.get('max_slots', 3)
+            joined = html.escape(str(u.get('joined_at', 'N/A'))[:10])
+            entries.append(
+                f"<b>{idx}. {uname}</b> (UID: <code>{u['user_id']}</code>){banned_badge}\n"
+                f"   └ Slots: <code>{slots}</code> | Joined: <code>{joined}</code>"
+            )
+        text += "\n\n".join(entries) + "</blockquote>\n"
+
+    text += "\n💡 <i>Select a user button from the keyboard below to inspect details and manage privileges:</i>"
     reply_markup = get_admin_users_reply_keyboard(users, curr_page)
     await _send_admin_msg(update, text, reply_markup=reply_markup)
 
 async def admin_user_detail_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int = None):
     admin_id = update.effective_user.id
     if not is_admin(admin_id):
-        await _send_admin_msg(update, "⛔ Access Denied.")
+        await _send_admin_msg(update, "⛔ <b>Access Denied.</b>")
         return
 
     if user_id is None and update.message and update.message.text:
@@ -237,25 +286,37 @@ async def admin_user_detail_handler(update: Update, context: ContextTypes.DEFAUL
 
     target_user = database.get_or_create_user(user_id)
     user_bots = database.get_user_bots(user_id)
+    running_count = sum(1 for b in user_bots if b.get('status') == 'RUNNING')
 
-    banned_str = "🔴 Yes (Banned)" if target_user.get('is_banned') else "🟢 No (Active)"
+    is_banned = bool(target_user.get('is_banned'))
+    banned_str = "🔴 <b>Banned (Suspended)</b>" if is_banned else "🟢 <b>Active (Authorized)</b>"
+
+    display_name = target_user.get('first_name') or target_user.get('username') or f"User_{target_user['user_id']}"
+    username_str = f"@{html.escape(target_user['username'])}" if target_user.get('username') else "<i>None</i>"
+
     text = (
-        f"👤 **User Detail: {target_user.get('first_name') or target_user.get('username') or target_user['user_id']}**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🆔 **User ID:** `{target_user['user_id']}`\n"
-        f"🏷️ **Username:** @{target_user.get('username') or 'N/A'}\n"
-        f"🚫 **Banned:** {banned_str}\n"
-        f"📦 **Slot Limit:** `{target_user.get('max_slots', 3)}` bots\n"
-        f"🤖 **Hosted Bots:** `{len(user_bots)}`\n"
-        f"📅 **Joined At:** `{target_user.get('joined_at', 'N/A')}`\n"
+        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
+        "│  👤 <b>ᴜsᴇʀ ᴘʀᴏғɪʟᴇ ɪɴsᴘᴇᴄᴛᴏʀ</b>\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        "<blockquote>"
+        f"🆔 <b>User ID:</b> <code>{target_user['user_id']}</code>\n"
+        f"👤 <b>Name:</b> <b>{html.escape(str(display_name))}</b>\n"
+        f"🏷️ <b>Username:</b> {username_str}\n"
+        f"🛡️ <b>Account Status:</b> {banned_str}\n"
+        f"📦 <b>Slot Allocation:</b> <code>{target_user.get('max_slots', 3)}</code> bots\n"
+        f"🤖 <b>Hosted Instances:</b> <code>{len(user_bots)}</code> (<code>{running_count}</code> Active)\n"
+        f"📅 <b>Registration Date:</b> <code>{html.escape(str(target_user.get('joined_at', 'N/A')))}</code>"
+        "</blockquote>\n\n"
+        "⚡ <b>ᴀᴄᴄᴏᴜɴᴛ ᴀᴄᴛɪᴏɴs</b>\n"
+        "Use the keyboard options below to toggle account access or grant additional slot capacity."
     )
-    reply_markup = get_admin_user_detail_keyboard(user_id, bool(target_user.get('is_banned')))
+    reply_markup = get_admin_user_detail_keyboard(user_id, is_banned)
     await _send_admin_msg(update, text, reply_markup=reply_markup)
 
 async def admin_user_action_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str = None, target_uid: int = None):
     admin_id = update.effective_user.id
     if not is_admin(admin_id):
-        await _send_admin_msg(update, "⛔ Access Denied.")
+        await _send_admin_msg(update, "⛔ <b>Access Denied.</b>")
         return
 
     text_input = update.message.text if (update.message and update.message.text) else ""
@@ -282,21 +343,30 @@ async def admin_user_action_handler(update: Update, context: ContextTypes.DEFAUL
         if new_ban:
             for b in database.get_user_bots(target_uid):
                 await bot_manager.stop_bot(b['bot_id'])
-            await _send_admin_msg(update, f"🚫 **User `{target_uid}` has been BANNED.** All active bots stopped.")
+            await _send_admin_msg(
+                update,
+                f"🚫 <b>ᴜsᴇʀ ʙᴀɴɴᴇᴅ</b>\nUser <code>{target_uid}</code> has been banned. All active child subprocesses terminated."
+            )
         else:
-            await _send_admin_msg(update, f"🔓 **User `{target_uid}` has been UNBANNED.**")
+            await _send_admin_msg(
+                update,
+                f"🔓 <b>ᴜsᴇʀ ᴜɴʙᴀɴɴᴇᴅ</b>\nUser <code>{target_uid}</code> has been restored to active status."
+            )
 
     elif action == "inc_slots":
         new_slots = target_user.get('max_slots', 3) + 2
         database.set_user_slots(target_uid, new_slots)
-        await _send_admin_msg(update, f"➕ **Slot Limit increased to `{new_slots}` bots** for User `{target_uid}`.")
+        await _send_admin_msg(
+            update,
+            f"➕ <b>sʟᴏᴛs ᴜᴘɢʀᴀᴅᴇᴅ</b>\nHosting capacity increased to <code>{new_slots}</code> bots for User <code>{target_uid}</code>."
+        )
 
     await admin_user_detail_handler(update, context, target_uid)
 
 async def admin_bots_list_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
     user_id = update.effective_user.id
     if not is_admin(user_id):
-        await _send_admin_msg(update, "⛔ Access Denied.")
+        await _send_admin_msg(update, "⛔ <b>Access Denied.</b>")
         return
 
     all_bots = database.get_all_hosted_bots()
@@ -306,22 +376,37 @@ async def admin_bots_list_handler(update: Update, context: ContextTypes.DEFAULT_
     context.user_data['admin_bots_page'] = curr_page
     curr_bots = all_bots[curr_page * per_page : (curr_page + 1) * per_page]
 
-    text = f"🤖 **All Platform Bots** (Page {curr_page + 1}/{total_pages})\n━━━━━━━━━━━━━━━━━━━━━━\n"
-    if not all_bots:
-        text += "ℹ️ *No bots hosted on the platform yet.*\n"
-    else:
-        for idx, b in enumerate(curr_bots, start=curr_page * per_page + 1):
-            status_emoji = "🟢" if b.get('status') == "RUNNING" else ("🔴" if b.get('status') in ["FAILED", "CRASHED"] else "⚪")
-            text += f"{idx}. {status_emoji} **{b.get('bot_name', 'Bot')}** `[#{b.get('bot_id')}]`\n   └ Owner: `{b.get('user_id')}` | Status: `{b.get('status')}`\n"
+    text = (
+        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
+        f"│  🤖 <b>ᴀʟʟ ᴘʟᴀᴛғᴏʀᴍ ʙᴏᴛs (Page {curr_page + 1}/{total_pages})</b>\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+    )
 
-    text += "\n💡 Tap a bot button below to manage operations (start, stop, logs, delete):"
+    if not all_bots:
+        text += "<blockquote><i>No hosted bot instances found on the platform.</i></blockquote>\n"
+    else:
+        text += "<blockquote>"
+        entries = []
+        for idx, b in enumerate(curr_bots, start=curr_page * per_page + 1):
+            st = b.get('status', 'STOPPED')
+            status_emoji = "🟢" if st == "RUNNING" else ("🔴" if st in ["FAILED", "CRASHED"] else "⚪")
+            b_name = html.escape(b.get('bot_name', 'Bot'))
+            b_id = html.escape(str(b.get('bot_id', '')))
+            u_id = b.get('user_id')
+            entries.append(
+                f"{idx}. {status_emoji} <b>{b_name}</b> [<code>#{b_id}</code>]\n"
+                f"   └ Owner: <code>{u_id}</code> | Status: <code>{st}</code>"
+            )
+        text += "\n\n".join(entries) + "</blockquote>\n"
+
+    text += "\n💡 <i>Select a bot button below to inspect configuration, read execution logs, or manage lifecycle states:</i>"
     reply_markup = get_admin_bots_reply_keyboard(all_bots, curr_page)
     await _send_admin_msg(update, text, reply_markup=reply_markup)
 
 async def admin_bot_detail_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_id: str = None):
     admin_id = update.effective_user.id
     if not is_admin(admin_id):
-        await _send_admin_msg(update, "⛔ Access Denied.")
+        await _send_admin_msg(update, "⛔ <b>Access Denied.</b>")
         return
 
     if bot_id is None and update.message and update.message.text:
@@ -335,7 +420,7 @@ async def admin_bot_detail_handler(update: Update, context: ContextTypes.DEFAULT
 
     bot_data = database.get_bot(bot_id)
     if not bot_data:
-        await _send_admin_msg(update, f"⚠️ Bot `#{bot_id}` not found in database.")
+        await _send_admin_msg(update, f"⚠️ <b>Bot <code>#{html.escape(bot_id)}</code> not found in database.</b>")
         await admin_bots_list_handler(update, context, 0)
         return
 
@@ -343,15 +428,24 @@ async def admin_bot_detail_handler(update: Update, context: ContextTypes.DEFAULT
     status_emoji = "🟢" if status == "RUNNING" else ("🔴" if status in ["FAILED", "CRASHED"] else "⚪")
     token = bot_data.get('bot_token', '')
     masked_token = f"{token[:10]}...{token[-5:]}" if len(token) > 15 else "******"
+    script_path = bot_data.get('script_path') or f"{DATA_DIR}/bots/{bot_data['user_id']}_{bot_id}/main.py"
+    created_at = bot_data.get('created_at', 'N/A')
 
     text = (
-        f"🤖 **Bot Manager: {bot_data.get('bot_name')}**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🆔 **Bot ID:** `{bot_data['bot_id']}`\n"
-        f"👤 **Owner ID:** `{bot_data['user_id']}`\n"
-        f"📊 **Status:** {status_emoji} `{status}`\n"
-        f"🔑 **Token (masked):** `{masked_token}`\n"
-        f"🕒 **Created:** `{bot_data.get('created_at', 'N/A')}`\n"
+        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
+        "│  ⚙️ <b>ᴘʟᴀᴛғᴏʀᴍ ʙᴏᴛ ɪɴsᴘᴇᴄᴛᴏʀ</b>\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        "<blockquote>"
+        f"🤖 <b>Bot Name:</b> <b>{html.escape(bot_data.get('bot_name', 'Unnamed Bot'))}</b>\n"
+        f"🆔 <b>Bot ID:</b> <code>#{html.escape(bot_id)}</code>\n"
+        f"👤 <b>Owner UID:</b> <code>{bot_data['user_id']}</code>\n"
+        f"📊 <b>Status:</b> {status_emoji} <code>{status}</code>\n"
+        f"🔑 <b>Token (Masked):</b> <code>{html.escape(masked_token)}</code>\n"
+        f"📁 <b>Script Path:</b> <code>{html.escape(script_path)}</code>\n"
+        f"🕒 <b>Provisioned:</b> <code>{html.escape(str(created_at))}</code>"
+        "</blockquote>\n\n"
+        "⚡ <b>ᴘʀᴏᴄᴇss ᴄᴏɴᴛʀᴏʟ</b>\n"
+        "Select a command below to start, stop, restart, stream execution logs, or force delete."
     )
     reply_markup = get_admin_bot_detail_keyboard(bot_id, status)
     await _send_admin_msg(update, text, reply_markup=reply_markup)
@@ -359,7 +453,7 @@ async def admin_bot_detail_handler(update: Update, context: ContextTypes.DEFAULT
 async def admin_bot_action_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str = None, bot_id: str = None):
     admin_id = update.effective_user.id
     if not is_admin(admin_id):
-        await _send_admin_msg(update, "⛔ Access Denied.")
+        await _send_admin_msg(update, "⛔ <b>Access Denied.</b>")
         return
 
     text_input = update.message.text if (update.message and update.message.text) else ""
@@ -386,26 +480,38 @@ async def admin_bot_action_handler(update: Update, context: ContextTypes.DEFAULT
 
     if action == "start":
         success, msg = await bot_manager.start_bot(bot_id)
-        icon = "✅" if success else "❌"
-        await _send_admin_msg(update, f"{icon} **Start Result:** {msg}")
+        if success:
+            await _send_admin_msg(update, f"✅ <b>ᴘʀᴏᴄᴇss sᴛᴀʀᴛᴇᴅ</b>\n<code>{html.escape(msg)}</code>")
+        else:
+            await _send_admin_msg(update, f"❌ <b>sᴛᴀʀᴛ ғᴀɪʟᴇᴅ</b>\n<code>{html.escape(msg)}</code>")
         await admin_bot_detail_handler(update, context, bot_id)
 
     elif action == "stop":
         success, msg = await bot_manager.stop_bot(bot_id)
-        icon = "✅" if success else "❌"
-        await _send_admin_msg(update, f"{icon} **Stop Result:** {msg}")
+        if success:
+            await _send_admin_msg(update, f"⏹️ <b>ᴘʀᴏᴄᴇss sᴛᴏᴘᴘᴇᴅ</b>\n<code>{html.escape(msg)}</code>")
+        else:
+            await _send_admin_msg(update, f"❌ <b>sᴛᴏᴘ ғᴀɪʟᴇᴅ</b>\n<code>{html.escape(msg)}</code>")
         await admin_bot_detail_handler(update, context, bot_id)
 
     elif action == "restart":
         success, msg = await bot_manager.restart_bot(bot_id)
-        icon = "✅" if success else "❌"
-        await _send_admin_msg(update, f"{icon} **Restart Result:** {msg}")
+        if success:
+            await _send_admin_msg(update, f"🔄 <b>ᴘʀᴏᴄᴇss ʀᴇsᴛᴀʀᴛᴇᴅ</b>\n<code>{html.escape(msg)}</code>")
+        else:
+            await _send_admin_msg(update, f"❌ <b>ʀᴇsᴛᴀʀᴛ ғᴀɪʟᴇᴅ</b>\n<code>{html.escape(msg)}</code>")
         await admin_bot_detail_handler(update, context, bot_id)
 
     elif action == "logs":
         logs = bot_manager.get_logs(bot_id, lines=30)
-        log_snippet = logs[-3500:] if logs else "No logs recorded yet."
-        text = f"📜 **Logs for Bot `{bot_id}`:**\n\n```\n{log_snippet}\n```"
+        log_snippet = logs[-3500:] if logs else "No execution logs recorded yet."
+        text = (
+            "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
+            "│  📜 <b>ʙᴏᴛ ᴇxᴇᴄᴜᴛɪᴏɴ ʟᴏɢs</b>\n"
+            "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+            f"🤖 <b>Target Bot:</b> <code>#{html.escape(bot_id)}</code>\n\n"
+            f"<pre><code>{html.escape(log_snippet)}</code></pre>"
+        )
         reply_markup = ReplyKeyboardMarkup([
             [KeyboardButton(f"📜 View Logs [#{bot_id}]"), KeyboardButton(f"🔄 Restart [#{bot_id}]")],
             [KeyboardButton("🔙 Back to All Bots"), KeyboardButton("🏠 Back to Admin")]
@@ -420,13 +526,16 @@ async def admin_bot_action_handler(update: Update, context: ContextTypes.DEFAULT
             if os.path.exists(script_dir):
                 shutil.rmtree(script_dir, ignore_errors=True)
         database.delete_bot_record(bot_id)
-        await _send_admin_msg(update, f"🗑️ **Bot `#{bot_id}` has been permanently deleted.**")
+        await _send_admin_msg(
+            update,
+            f"🗑️ <b>ʙᴏᴛ ᴘᴇʀᴍᴀɴᴇɴᴛʟʏ ᴅᴇʟᴇᴛᴇᴅ</b>\nBot instance <code>#{html.escape(bot_id)}</code> and disk assets have been purged."
+        )
         await admin_bots_list_handler(update, context, 0)
 
 async def admin_fsub_list_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
     user_id = update.effective_user.id
     if not is_admin(user_id):
-        await _send_admin_msg(update, "⛔ Access Denied.")
+        await _send_admin_msg(update, "⛔ <b>Access Denied.</b>")
         return
 
     channels = database.get_required_channels()
@@ -437,27 +546,35 @@ async def admin_fsub_list_handler(update: Update, context: ContextTypes.DEFAULT_
     curr_channels = channels[curr_page * per_page : (curr_page + 1) * per_page]
 
     text = (
-        f"📢 **Force-Sub Required Channels** (Page {curr_page + 1}/{total_pages})\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "Users must join all configured channels before using the bot.\n\n"
+        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
+        f"│  📢 <b>ғᴏʀᴄᴇ-sᴜʙ ᴄʜᴀɴɴᴇʟs (Page {curr_page + 1}/{total_pages})</b>\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
     )
-    if not channels:
-        text += "ℹ️ *No required channels configured yet.*\n"
-    else:
-        for idx, ch in enumerate(curr_channels, start=curr_page * per_page + 1):
-            text += (
-                f"{idx}. **{ch['title']}**\n"
-                f"   ├ 🆔 ID: `{ch['channel_id']}`\n"
-                f"   └ 🔗 Link: {ch['invite_link']}\n\n"
-            )
 
+    if not channels:
+        text += "<blockquote><i>No mandatory force-sub channels configured yet.</i></blockquote>\n"
+    else:
+        text += "<blockquote>"
+        entries = []
+        for idx, ch in enumerate(curr_channels, start=curr_page * per_page + 1):
+            ch_title = html.escape(ch.get('title', 'Channel'))
+            ch_id = html.escape(str(ch.get('channel_id', '')))
+            ch_link = html.escape(ch.get('invite_link', ''))
+            entries.append(
+                f"{idx}. <b>{ch_title}</b>\n"
+                f"   ├ 🆔 ID: <code>{ch_id}</code>\n"
+                f"   └ 🔗 Link: <a href=\"{ch_link}\">{ch_link}</a>"
+            )
+        text += "\n\n".join(entries) + "</blockquote>\n"
+
+    text += "\n💡 <i>Users must join all listed channels before accessing platform features. Tap a channel button below to remove it or add a new channel:</i>"
     reply_markup = get_admin_fsub_reply_keyboard(channels, curr_page)
     await _send_admin_msg(update, text, reply_markup=reply_markup)
 
 async def admin_fsub_del_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, channel_id: str = None):
     admin_id = update.effective_user.id
     if not is_admin(admin_id):
-        await _send_admin_msg(update, "⛔ Access Denied.")
+        await _send_admin_msg(update, "⛔ <b>Access Denied.</b>")
         return
 
     if channel_id is None and update.message and update.message.text:
@@ -467,14 +584,17 @@ async def admin_fsub_del_handler(update: Update, context: ContextTypes.DEFAULT_T
 
     if channel_id:
         database.delete_required_channel(channel_id)
-        await _send_admin_msg(update, f"✅ **Force-Sub Channel `{channel_id}` removed successfully!**")
+        await _send_admin_msg(
+            update,
+            f"✅ <b>ᴄʜᴀɴɴᴇʟ ʀᴇᴍᴏᴠᴇᴅ</b>\nForce-Sub Channel <code>{html.escape(channel_id)}</code> has been deleted successfully."
+        )
 
     await admin_fsub_list_handler(update, context, 0)
 
 async def admin_toggle_maint_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_admin(user_id):
-        await _send_admin_msg(update, "⛔ Access Denied.")
+        await _send_admin_msg(update, "⛔ <b>Access Denied.</b>")
         return
 
     current = database.get_setting("maintenance_mode", "0") == "1"
@@ -482,21 +602,28 @@ async def admin_toggle_maint_handler(update: Update, context: ContextTypes.DEFAU
     database.set_setting("maintenance_mode", new_val)
 
     status_str = "ENABLED (🔴 ON)" if new_val == "1" else "DISABLED (🟢 OFF)"
-    await _send_admin_msg(update, f"⚙️ **Maintenance mode is now {status_str}.**")
+    await _send_admin_msg(
+        update,
+        f"⚙️ <b>ᴍᴀɪɴᴛᴇɴᴀɴᴄᴇ ᴍᴏᴅᴇ ᴜᴘᴅᴀᴛᴇᴅ</b>\nPlatform maintenance status is now <code>{status_str}</code>."
+    )
     await admin_panel(update, context)
 
 async def admin_broadcast_prompt_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_admin(user_id):
-        await _send_admin_msg(update, "⛔ Access Denied.")
+        await _send_admin_msg(update, "⛔ <b>Access Denied.</b>")
         return
 
     text = (
-        "📢 **Send Global Broadcast Announcement**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "To send a broadcast to all registered users, use the command:\n\n"
-        "`/broadcast Your announcement message here...`\n\n"
-        "Markdown formatting is supported."
+        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
+        "│  📢 <b>ɢʟᴏʙᴀʟ ʙʀᴏᴀᴅᴄᴀsᴛ</b>\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        "<blockquote>"
+        "To broadcast an announcement to all registered users, send the command:\n\n"
+        "<code>/broadcast Your message content here...</code>\n\n"
+        "HTML formatting is supported in broadcast messages."
+        "</blockquote>\n\n"
+        "💡 <i>Tap Back to Admin below to return to the central console.</i>"
     )
     reply_markup = ReplyKeyboardMarkup([[KeyboardButton("🔙 Back to Admin")]], resize_keyboard=True)
     await _send_admin_msg(update, text, reply_markup=reply_markup)
@@ -509,17 +636,22 @@ async def admin_exit_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception:
         reply_kb = ReplyKeyboardMarkup([[KeyboardButton("🤖 My Hosted Bots"), KeyboardButton("➕ Host New Bot")]], resize_keyboard=True)
 
-    text = "🏠 **Exited Admin Panel.**\n\nReturned to user menu."
+    text = (
+        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
+        "│  🏠 <b>ᴇxɪᴛᴇᴅ ᴀᴅᴍɪɴ ᴄᴏɴsᴏʟᴇ</b>\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        "Returned to user dashboard."
+    )
     await _send_admin_msg(update, text, reply_markup=reply_kb)
 
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_admin(user_id):
-        await update.message.reply_text("⛔ Access Denied.")
+        await update.message.reply_text("⛔ <b>Access Denied.</b>", parse_mode="HTML")
         return
 
     if not context.args:
-        await update.message.reply_text("⚠️ Usage: `/broadcast <Your message>`", parse_mode="Markdown")
+        await update.message.reply_text("⚠️ <b>Usage:</b> <code>/broadcast &lt;Your message&gt;</code>", parse_mode="HTML")
         return
 
     broadcast_text = " ".join(context.args)
@@ -528,25 +660,36 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     success = 0
     failed = 0
 
-    progress_msg = await update.message.reply_text(f"⏳ Broadcasting to {total} users...")
+    progress_msg = await update.message.reply_text(f"⏳ <b>Broadcasting to <code>{total}</code> users...</b>", parse_mode="HTML")
+
+    formatted_msg = (
+        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
+        "│  📢 <b>ɢʀᴀᴠɪx-ʜᴏsᴛ ᴀɴɴᴏᴜɴᴄᴇᴍᴇɴᴛ</b>\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        f"<blockquote>{html.escape(broadcast_text)}</blockquote>"
+    )
 
     for u in users:
         try:
             await context.bot.send_message(
                 chat_id=u['user_id'],
-                text=f"📢 **Global Announcement from Gravix-Host**\n━━━━━━━━━━━━━━━━━━━━━━\n\n{broadcast_text}",
-                parse_mode="Markdown"
+                text=formatted_msg,
+                parse_mode="HTML"
             )
             success += 1
         except Exception:
             failed += 1
 
     await progress_msg.edit_text(
-        f"✅ **Broadcast Completed!**\n\n"
-        f"👥 Total Target Users: `{total}`\n"
-        f"✔️ Successfully Sent: `{success}`\n"
-        f"❌ Failed (Blocked/Deleted): `{failed}`",
-        parse_mode="Markdown"
+        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
+        "│  ✅ <b>ʙʀᴏᴀᴅᴄᴀsᴛ ᴄᴏᴍᴘʟᴇᴛɪᴏɴ ʀᴇᴘᴏʀᴛ</b>\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        "<blockquote>"
+        f"👥 <b>Target Users:</b> <code>{total}</code>\n"
+        f"✔️ <b>Successfully Delivered:</b> <code>{success}</code>\n"
+        f"❌ <b>Delivery Failures:</b> <code>{failed}</code> (Blocked/Deleted)"
+        "</blockquote>",
+        parse_mode="HTML"
     )
 
 
@@ -559,25 +702,28 @@ FSUB_CANCEL_KEYBOARD = ReplyKeyboardMarkup([[KeyboardButton("❌ Cancel")]], res
 async def admin_fsub_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_admin(user_id):
-        await _send_admin_msg(update, "⛔ Access Denied: You are not authorized.")
+        await _send_admin_msg(update, "⛔ <b>Access Denied:</b> You are not authorized.")
         return ConversationHandler.END
 
     context.user_data['active_flow'] = 'fsub_add'
     text = (
-        "➕ **Add Required Channel (Step 1/3)**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "Please enter the **Telegram Channel ID / Username**:\n\n"
-        "• Public Channel: `@ChannelUsername`\n"
-        "• Private Channel: `-1001234567890`\n\n"
-        "⚠️ *Make sure the bot is added as an Administrator in this channel.*\n\n"
-        "*(Send Channel ID or tap Cancel below to abort)*"
+        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
+        "│  ➕ <b>ᴀᴅᴅ ғᴏʀᴄᴇ-sᴜʙ ᴄʜᴀɴɴᴇʟ (1/3)</b>\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        "<blockquote>"
+        "Please send the <b>Telegram Channel ID / Public Handle</b>:\n\n"
+        "• Public Channel: <code>@ChannelUsername</code>\n"
+        "• Private Channel: <code>-1001234567890</code>\n\n"
+        "⚠️ <i>Make sure the master bot is added as an Administrator in this channel.</i>"
+        "</blockquote>\n\n"
+        "<i>(Send Channel ID or tap ❌ Cancel below to abort)</i>"
     )
     await _send_admin_msg(update, text, reply_markup=FSUB_CANCEL_KEYBOARD)
     return A_FSUB_ID
 
 async def admin_fsub_get_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('active_flow') != 'fsub_add':
-        await update.message.reply_text("⚠️ This session expired. Please use /admin to start again.")
+        await update.message.reply_text("⚠️ <i>This session expired. Please use /admin to start again.</i>", parse_mode="HTML")
         return ConversationHandler.END
 
     raw_id = update.message.text.strip()
@@ -589,67 +735,85 @@ async def admin_fsub_get_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not is_valid:
         text = (
-            "⚠️ **Invalid Channel ID format.**\n\n"
-            "Please provide a valid public handle (e.g. `@GravixRDP`) or private channel ID (e.g. `-1001234567890`):\n\n"
-            "*(Send Channel ID or tap Cancel to abort)*"
+            "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
+            "│  ⚠️ <b>ɪɴᴠᴀʟɪᴅ ᴄʜᴀɴɴᴇʟ ɪᴅ ғᴏʀᴍᴀᴛ</b>\n"
+            "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+            "<blockquote>"
+            "Please provide a valid public handle (e.g. <code>@GravixRDP</code>) or numeric private channel ID (e.g. <code>-1001234567890</code>)."
+            "</blockquote>\n\n"
+            "<i>(Send Channel ID or tap ❌ Cancel to abort)</i>"
         )
-        await update.message.reply_text(text, reply_markup=FSUB_CANCEL_KEYBOARD, parse_mode="Markdown")
+        await update.message.reply_text(text, reply_markup=FSUB_CANCEL_KEYBOARD, parse_mode="HTML")
         return A_FSUB_ID
 
     context.user_data['fsub_channel_id'] = raw_id
     text = (
-        "➕ **Add Required Channel (Step 2/3)**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Channel ID: `{raw_id}`\n\n"
-        "Please enter a display **Title** for this channel:\n"
-        "*(Example: `Gravix Official Channel`)*\n\n"
-        "*(Send Title or tap Cancel to abort)*"
+        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
+        "│  ➕ <b>ᴀᴅᴅ ғᴏʀᴄᴇ-sᴜʙ ᴄʜᴀɴɴᴇʟ (2/3)</b>\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        "<blockquote>"
+        f"Channel ID: <code>{html.escape(raw_id)}</code>\n\n"
+        "Please send a display <b>Title</b> for this channel:\n"
+        "<i>(Example: Gravix Official Channel)</i>"
+        "</blockquote>\n\n"
+        "<i>(Send Title or tap ❌ Cancel to abort)</i>"
     )
-    await update.message.reply_text(text, reply_markup=FSUB_CANCEL_KEYBOARD, parse_mode="Markdown")
+    await update.message.reply_text(text, reply_markup=FSUB_CANCEL_KEYBOARD, parse_mode="HTML")
     return A_FSUB_TITLE
 
 async def admin_fsub_get_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('active_flow') != 'fsub_add':
-        await update.message.reply_text("⚠️ This session expired. Please use /admin to start again.")
+        await update.message.reply_text("⚠️ <i>This session expired. Please use /admin to start again.</i>", parse_mode="HTML")
         return ConversationHandler.END
 
     title = update.message.text.strip()
     if not title or len(title) < 2 or len(title) > 64:
         text = (
-            "⚠️ **Invalid Title length.**\n\n"
-            "Please enter a title between 2 and 64 characters:\n\n"
-            "*(Send Title or tap Cancel to abort)*"
+            "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
+            "│  ⚠️ <b>ɪɴᴠᴀʟɪᴅ ᴛɪᴛʟᴇ ʟᴇɴɢᴛʜ</b>\n"
+            "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+            "<blockquote>"
+            "Please enter a channel title between 2 and 64 characters."
+            "</blockquote>\n\n"
+            "<i>(Send Title or tap ❌ Cancel to abort)</i>"
         )
-        await update.message.reply_text(text, reply_markup=FSUB_CANCEL_KEYBOARD, parse_mode="Markdown")
+        await update.message.reply_text(text, reply_markup=FSUB_CANCEL_KEYBOARD, parse_mode="HTML")
         return A_FSUB_TITLE
 
     context.user_data['fsub_title'] = title
     cid = context.user_data.get('fsub_channel_id', '')
     text = (
-        "➕ **Add Required Channel (Step 3/3)**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Channel ID: `{cid}`\n"
-        f"Title: **{title}**\n\n"
-        "Please enter the **Invite Link** for this channel:\n"
-        "*(Example: `https://t.me/GravixRDP` or `https://t.me/+joinhash`)*\n\n"
-        "*(Send Link or tap Cancel to abort)*"
+        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
+        "│  ➕ <b>ᴀᴅᴅ ғᴏʀᴄᴇ-sᴜʙ ᴄʜᴀɴɴᴇʟ (3/3)</b>\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        "<blockquote>"
+        f"Channel ID: <code>{html.escape(cid)}</code>\n"
+        f"Title: <b>{html.escape(title)}</b>\n\n"
+        "Please enter the <b>Invite Link</b> for this channel:\n"
+        "<i>(Example: https://t.me/GravixRDP or https://t.me/+joinhash)</i>"
+        "</blockquote>\n\n"
+        "<i>(Send Link or tap ❌ Cancel to abort)</i>"
     )
-    await update.message.reply_text(text, reply_markup=FSUB_CANCEL_KEYBOARD, parse_mode="Markdown")
+    await update.message.reply_text(text, reply_markup=FSUB_CANCEL_KEYBOARD, parse_mode="HTML")
     return A_FSUB_LINK
 
 async def admin_fsub_get_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('active_flow') != 'fsub_add':
-        await update.message.reply_text("⚠️ This session expired. Please use /admin to start again.")
+        await update.message.reply_text("⚠️ <i>This session expired. Please use /admin to start again.</i>", parse_mode="HTML")
         return ConversationHandler.END
 
     link = update.message.text.strip()
     if not re.match(r"^https?://(t\.me|telegram\.me)/.+$", link):
         text = (
-            "⚠️ **Invalid Invite Link format.**\n\n"
-            "The link must start with `https://t.me/...`\n\n"
-            "*(Send Link or tap Cancel to abort)*"
+            "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
+            "│  ⚠️ <b>ɪɴᴠᴀʟɪᴅ ɪɴᴠɪᴛᴇ ʟɪɴᴋ</b>\n"
+            "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+            "<blockquote>"
+            "The invite link must start with <code>https://t.me/...</code>"
+            "</blockquote>\n\n"
+            "<i>(Send Link or tap ❌ Cancel to abort)</i>"
         )
-        await update.message.reply_text(text, reply_markup=FSUB_CANCEL_KEYBOARD, parse_mode="Markdown")
+        await update.message.reply_text(text, reply_markup=FSUB_CANCEL_KEYBOARD, parse_mode="HTML")
         return A_FSUB_LINK
 
     cid = context.user_data.get('fsub_channel_id', '')
@@ -661,16 +825,19 @@ async def admin_fsub_get_link(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data.pop('active_flow', None)
 
     text = (
-        "✅ **Force-Sub Channel Added Successfully!**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📢 **Title:** {title}\n"
-        f"🆔 **Channel ID:** `{cid}`\n"
-        f"🔗 **Invite Link:** {link}\n\n"
+        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
+        "│  ✅ <b>ᴄʜᴀɴɴᴇʟ ᴀᴅᴅᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ</b>\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        "<blockquote>"
+        f"📢 <b>Title:</b> {html.escape(title)}\n"
+        f"🆔 <b>Channel ID:</b> <code>{html.escape(cid)}</code>\n"
+        f"🔗 <b>Invite Link:</b> <a href=\"{html.escape(link)}\">{html.escape(link)}</a>"
+        "</blockquote>\n\n"
         "Users are now required to join this channel."
     )
     channels = database.get_required_channels()
     reply_markup = get_admin_fsub_reply_keyboard(channels, 0)
-    await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="Markdown")
+    await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="HTML")
     return ConversationHandler.END
 
 async def admin_fsub_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -678,7 +845,13 @@ async def admin_fsub_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop('fsub_title', None)
     context.user_data.pop('active_flow', None)
 
-    await _send_admin_msg(update, "❌ **Add channel process cancelled.**")
+    await _send_admin_msg(
+        update,
+        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
+        "│  ❌ <b>ᴀᴅᴅ ᴄʜᴀɴɴᴇʟ ᴄᴀɴᴄᴇʟʟᴇᴅ</b>\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        "The channel addition wizard was aborted."
+    )
     await admin_fsub_list_handler(update, context, 0)
     return ConversationHandler.END
 

@@ -95,7 +95,21 @@ async def general_message_router(update: Update, context: ContextTypes.DEFAULT_T
         handled = await handle_admin_text(update, context)
         if handled:
             return
-    await user_text_router(update, context)
+    handled = await user_text_router(update, context)
+    if handled:
+        return
+
+    nav_card = (
+        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
+        "│  💡 <b>ɢʀᴀᴠɪx-ʜᴏsᴛ ɴᴀᴠɪɢᴀᴛɪᴏɴ</b>\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n"
+        "<blockquote>Please use the interactive buttons on your keyboard below or send <code>/start</code> to access the main dashboard.</blockquote>"
+    )
+    await update.message.reply_text(
+        nav_card,
+        reply_markup=get_main_reply_keyboard(user_id),
+        parse_mode="HTML"
+    )
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Exception while handling an update: {context.error}", exc_info=context.error)

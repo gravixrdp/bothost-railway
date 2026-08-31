@@ -2,7 +2,9 @@ import os
 import uuid
 import shutil
 import re
+import html
 import logging
+from datetime import datetime, timezone
 import httpx
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ContextTypes, ConversationHandler
@@ -16,13 +18,40 @@ logger = logging.getLogger("GravixHost.User")
 NAME, TOKEN, CODE = range(3)
 TPL_TOKEN = 10
 
+# ---------------------------------------------------------
+# UI & Typography Helpers (Ultra-Premium Aesthetics)
+# ---------------------------------------------------------
+
+def make_header_card(title: str, subtitle: str = "Next-Gen 24/7 Cloud Hosting Engine") -> str:
+    """Builds a luxury framed header card with small-caps typography."""
+    return (
+        "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮\n"
+        f"│  ⚡ <b>{title}</b>  ⚡\n"
+        f"│  <i>{subtitle}</i>\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯"
+    )
+
+def get_status_badge(status: str) -> str:
+    """Returns a sleek formatted status badge with HTML markup."""
+    s = (status or "").upper()
+    if s == "RUNNING":
+        return "🟢 <code>RUNNING</code>"
+    elif s in ("FAILED", "CRASHED"):
+        return f"🔴 <code>{html.escape(s)}</code>"
+    elif s == "RESTARTING":
+        return "🟡 <code>RESTARTING</code>"
+    elif s == "PAUSED":
+        return "⚪ <code>PAUSED</code>"
+    else:
+        return f"⚪ <code>{html.escape(s or 'STOPPED')}</code>"
+
 def sanitize_token(raw_token: str) -> str:
     return raw_token.strip().strip("`").strip("'").strip('"').strip()
 
 async def verify_telegram_token(token: str) -> tuple[bool, str, str]:
     cleaned = sanitize_token(token)
     if not re.match(r"^\d{6,14}:[a-zA-Z0-9_-]{30,45}$", cleaned):
-        return False, "", "Invalid token format. Please check and copy the full token from @BotFather."
+        return False, "", "Invalid token format. Please copy the complete token string from @BotFather."
 
     url = f"https://api.telegram.org/bot{cleaned}/getMe"
     try:
@@ -84,25 +113,27 @@ def get_force_sub_keyboard(unjoined_channels: list) -> InlineKeyboardMarkup:
         link = ch.get("invite_link", "") if isinstance(ch, dict) else ch["invite_link"]
         keyboard.append([InlineKeyboardButton(f"📢 Join {title}", url=link)])
 
-    keyboard.append([InlineKeyboardButton("✅ I Have Joined / Verify", callback_data="verify_fsub")])
+    keyboard.append([InlineKeyboardButton("✅ Verify Membership", callback_data="verify_fsub")])
     return InlineKeyboardMarkup(keyboard)
 
 async def send_force_sub_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE, unjoined_channels: list):
+    header = make_header_card("ᴍ ᴀ ɴ ᴅ ᴀ ᴛ ᴏ ʀ ʏ  ᴄ ʜ ᴀ ɴ ɴ ᴇ ʟ  ᴊ ᴏ ɪ ɴ", "Official Community Verification")
     text = (
-        "🔐 **Access Restricted — Mandatory Channel Join**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "To use **Gravix-Host** and host your Telegram bots 24/7, you must join our official channels first.\n\n"
-        "📢 **Please join the channel(s) below:**\n"
-        "Click each button below to join the channel, then tap the **Verify** button to activate your account."
+        f"{header}\n\n"
+        "<blockquote>To access <b>ɢ ʀ ᴀ ᴠ ɪ x - ʜ ᴏ s ᴛ</b> and deploy your Telegram bots 24/7, "
+        "you must join our official community channels first.</blockquote>\n\n"
+        "<b>📢 Verification Steps:</b>\n"
+        "<blockquote>1. Click and join each official channel listed below.\n"
+        "2. Tap the <b>✅ Verify Membership</b> button to activate your account.</blockquote>"
     )
     keyboard = get_force_sub_keyboard(unjoined_channels)
     if update.callback_query:
         try:
-            await update.callback_query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")
+            await update.callback_query.edit_message_text(text, reply_markup=keyboard, parse_mode="HTML")
         except Exception:
-            await update.callback_query.message.reply_text(text, reply_markup=keyboard, parse_mode="Markdown")
+            await update.callback_query.message.reply_text(text, reply_markup=keyboard, parse_mode="HTML")
     elif update.message:
-        await update.message.reply_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        await update.message.reply_text(text, reply_markup=keyboard, parse_mode="HTML")
 
 async def verify_fsub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -211,10 +242,15 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db_user = database.get_or_create_user(user.id, user.username or "", user.first_name or "")
 
     if db_user['is_banned']:
+        msg = (
+            f"{make_header_card('ᴀ ᴄ ᴄ ᴏ ᴜ ɴ ᴛ  s ᴜ s ᴘ ᴇ ɴ ᴅ ᴇ ᴅ', 'Access Denied')}\n\n"
+            "<blockquote>🚫 <b>Access Restricted:</b> Your account has been suspended by the administrator.</blockquote>"
+        )
         if update.callback_query:
             await update.callback_query.answer("🚫 Account Suspended", show_alert=True)
+            await update.effective_message.reply_text(msg, parse_mode="HTML")
         else:
-            await update.message.reply_text("🚫 Your account has been suspended by the administrator.")
+            await update.message.reply_text(msg, parse_mode="HTML")
         return
 
     is_sub, unjoined = await check_user_subscription(context.bot, user.id)
@@ -223,19 +259,25 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     maint = database.get_setting("maintenance_mode", "0") == "1"
-    maint_notice = "\n⚠️ *Maintenance mode is currently active.*" if (maint and user.id != ADMIN_ID) else ""
+    maint_notice = ""
+    if maint and user.id != ADMIN_ID:
+        maint_notice = "\n<blockquote>⚠️ <b>Notice:</b> System maintenance is currently active. Deployments may be temporarily paused.</blockquote>\n"
+
+    header = make_header_card("ɢ ʀ ᴀ ᴠ ɪ x - ʜ ᴏ s ᴛ  ᴘ ʀ ᴏ", "Next-Gen 24/7 Cloud Hosting Engine")
+    safe_name = html.escape(user.first_name or "Developer")
 
     text = (
-        f"🚀 **Welcome to Gravix-Host**, {user.first_name}!\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "Your all-in-one 24/7 Telegram Bot Cloud Hosting platform.\n\n"
-        "✨ **What you can do:**\n"
-        "• Host custom Python Telegram bots in isolated environments\n"
-        "• 1-Click deploy ready-made bot templates\n"
-        "• Real-time log viewer, uptime monitoring & auto-restart\n"
-        "• Complete control with start, stop, restart & delete options\n"
+        f"{header}\n\n"
+        f"👋 Welcome, <b>{safe_name}</b>!\n\n"
+        "<blockquote><b>ɢ ʀ ᴀ ᴠ ɪ x - ʜ ᴏ s ᴛ</b> delivers high-performance 24/7 isolated cloud runtime "
+        "for your Python Telegram bots with automated watchdog monitoring and zero downtime.</blockquote>\n\n"
+        "<b>🚀 Platform Capabilities:</b>\n"
+        "<blockquote>• <b>Custom Python Hosting:</b> Upload scripts or raw code\n"
+        "• <b>1-Click Templates:</b> Instant pre-configured bot deployment\n"
+        "• <b>Live Console Engine:</b> Real-time log streaming & watchdog\n"
+        "• <b>Lifecycle Control:</b> Start, stop, restart & auto-heal</blockquote>\n"
         f"{maint_notice}\n"
-        "Choose an action from the keyboard menu below to get started:"
+        "👇 <i>Select an action from the persistent menu below to manage your bots:</i>"
     )
 
     reply_kb = get_main_reply_keyboard(user.id)
@@ -244,19 +286,24 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.callback_query.answer()
         except Exception:
             pass
-        await update.callback_query.message.reply_text(text, reply_markup=reply_kb, parse_mode="Markdown")
+        await update.callback_query.message.reply_text(text, reply_markup=reply_kb, parse_mode="HTML")
     elif update.message:
-        await update.message.reply_text(text, reply_markup=reply_kb, parse_mode="Markdown")
+        await update.message.reply_text(text, reply_markup=reply_kb, parse_mode="HTML")
 
 async def show_my_bots(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
     user = update.effective_user
     user_id = user.id
     db_user = database.get_or_create_user(user_id)
     if db_user['is_banned']:
+        msg = (
+            f"{make_header_card('ᴀ ᴄ ᴄ ᴏ ᴜ ɴ ᴛ  s ᴜ s ᴘ ᴇ ɴ ᴅ ᴇ ᴅ', 'Access Denied')}\n\n"
+            "<blockquote>🚫 <b>Access Restricted:</b> Your account has been suspended by the administrator.</blockquote>"
+        )
         if update.callback_query:
             await update.callback_query.answer("🚫 Account Suspended", show_alert=True)
+            await update.effective_message.reply_text(msg, parse_mode="HTML")
         else:
-            await update.message.reply_text("🚫 Your account has been suspended.")
+            await update.message.reply_text(msg, parse_mode="HTML")
         return
 
     is_sub, unjoined = await check_user_subscription(context.bot, user_id)
@@ -272,46 +319,62 @@ async def show_my_bots(update: Update, context: ContextTypes.DEFAULT_TYPE, page:
     curr_bots = user_bots[page * per_page : (page + 1) * per_page]
 
     if not user_bots:
+        header = make_header_card("ᴍ ʏ  ʜ ᴏ s ᴛ ᴇ ᴅ  ʙ ᴏ ᴛ s", "Cloud Instances Overview")
         text = (
-            "🤖 **My Hosted Bots**\n"
-            "━━━━━━━━━━━━━━━━━━━━━━\n"
-            "You haven't hosted any bots yet!\n\n"
-            "Deploy a custom script or a 1-click template to get started:"
+            f"{header}\n\n"
+            "<blockquote>You currently have no hosted bots provisioned on <b>ɢ ʀ ᴀ ᴠ ɪ x - ʜ ᴏ s ᴛ</b>.</blockquote>\n\n"
+            "<b>🚀 Getting Started:</b>\n"
+            "<blockquote>• Tap <b>➕ Host New Bot</b> to deploy your custom Python script.\n"
+            "• Tap <b>⚡ Quick Template Deploy</b> to launch a ready-made template in seconds.</blockquote>"
         )
         keyboard = ReplyKeyboardMarkup([
             [KeyboardButton("➕ Host New Bot"), KeyboardButton("⚡ Quick Template Deploy")],
             [KeyboardButton("🔙 Back to Main Menu")]
         ], resize_keyboard=True)
         if update.callback_query:
-            await update.callback_query.message.reply_text(text, reply_markup=keyboard, parse_mode="Markdown")
+            await update.callback_query.message.reply_text(text, reply_markup=keyboard, parse_mode="HTML")
         else:
-            await update.message.reply_text(text, reply_markup=keyboard, parse_mode="Markdown")
+            await update.message.reply_text(text, reply_markup=keyboard, parse_mode="HTML")
         return
 
-    text = (
-        f"🤖 **My Hosted Bots** (Page {page + 1}/{total_pages})\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "Select a bot from the keyboard menu below to view details, restart, or check logs:\n"
-    )
+    header = make_header_card("ᴍ ʏ  ʜ ᴏ s ᴛ ᴇ ᴅ  ʙ ᴏ ᴛ s", f"Page {page + 1} of {total_pages}")
+    
+    bot_lines = []
     for b in curr_bots:
-        status_emoji = "🟢" if b['status'] == "RUNNING" else ("🔴" if b['status'] in ["FAILED", "CRASHED"] else "⚪")
-        text += f"\n• {status_emoji} **{b['bot_name']}** (`#{b['bot_id']}`)\n  Status: `{b['status']}`"
+        status_badge = get_status_badge(b.get('status', 'STOPPED'))
+        b_name = html.escape(b.get('bot_name', 'Unnamed Bot'))
+        b_id = html.escape(str(b.get('bot_id', '')))
+        raw_status = html.escape(str(b.get('status', 'STOPPED')))
+        bot_lines.append(f"• {status_badge} <b>{b_name}</b> (<code>#{b_id}</code>)\n  └ <i>Status:</i> <code>{raw_status}</code>")
+
+    bots_block = "\n".join(bot_lines)
+    text = (
+        f"{header}\n\n"
+        "<blockquote>Select any bot from the persistent menu below to inspect diagnostics, stream live logs, or control lifecycle.</blockquote>\n\n"
+        "<b>📋 Active Instances:</b>\n"
+        f"<blockquote>\n{bots_block}\n</blockquote>"
+    )
 
     keyboard = get_my_bots_reply_keyboard(user_bots, page=page)
     if update.callback_query:
-        await update.callback_query.message.reply_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        await update.callback_query.message.reply_text(text, reply_markup=keyboard, parse_mode="HTML")
     else:
-        await update.message.reply_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        await update.message.reply_text(text, reply_markup=keyboard, parse_mode="HTML")
 
 async def show_bot_details(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_id: str = None):
     user = update.effective_user
     user_id = user.id
     db_user = database.get_or_create_user(user_id)
     if db_user['is_banned']:
+        msg = (
+            f"{make_header_card('ᴀ ᴄ ᴄ ᴏ ᴜ ɴ ᴛ  s ᴜ s ᴘ ᴇ ɴ ᴅ ᴇ ᴅ', 'Access Denied')}\n\n"
+            "<blockquote>🚫 <b>Access Restricted:</b> Your account has been suspended by the administrator.</blockquote>"
+        )
         if update.callback_query:
             await update.callback_query.answer("🚫 Account Suspended", show_alert=True)
+            await update.effective_message.reply_text(msg, parse_mode="HTML")
         else:
-            await update.message.reply_text("🚫 Your account has been suspended.")
+            await update.message.reply_text(msg, parse_mode="HTML")
         return
 
     if bot_id is None and update.message and update.message.text:
@@ -333,36 +396,78 @@ async def show_bot_details(update: Update, context: ContextTypes.DEFAULT_TYPE, b
         return
 
     status = bot_data['status']
-    status_emoji = "🟢" if status == "RUNNING" else ("🔴" if status in ["FAILED", "CRASHED"] else "⚪")
-    created_str = bot_data['created_at'][:19].replace('T', ' ') if bot_data.get('created_at') else "N/A"
-    token_masked = f"{bot_data['bot_token'][:10]}...{bot_data['bot_token'][-4:]}" if len(bot_data['bot_token']) > 14 else "••••••••"
+    status_badge = get_status_badge(status)
+    created_str = (bot_data.get('created_at') or "N/A")[:19].replace('T', ' ')
+    token_raw = bot_data.get('bot_token', '')
+    token_masked = f"{token_raw[:10]}...{token_raw[-4:]}" if len(token_raw) > 14 else "••••••••"
+
+    is_running = bot_manager.is_running(bot_id)
+    proc = bot_manager.active_processes.get(bot_id)
+    pid_str = str(proc.pid) if (proc and proc.returncode is None) else ("Active" if is_running else "Offline")
+
+    uptime_str = "Offline"
+    if is_running:
+        uptime_str = "Active"
+        last_started_str = bot_data.get('last_started')
+        if last_started_str:
+            try:
+                dt = datetime.fromisoformat(str(last_started_str).replace("Z", "+00:00"))
+                now_dt = datetime.now(timezone.utc) if dt.tzinfo else datetime.utcnow()
+                secs = int((now_dt - dt).total_seconds())
+                if secs >= 0:
+                    days, rem = divmod(secs, 86400)
+                    hours, rem = divmod(rem, 3600)
+                    mins, s = divmod(rem, 60)
+                    parts = []
+                    if days > 0:
+                        parts.append(f"{days}d")
+                    if hours > 0 or days > 0:
+                        parts.append(f"{hours}h")
+                    parts.append(f"{mins}m")
+                    parts.append(f"{s}s")
+                    uptime_str = " ".join(parts)
+            except Exception:
+                uptime_str = "Active"
+
+    auto_restart_str = "Enabled (Watchdog Active)" if bot_data.get('auto_restart') else "Disabled"
+    header = make_header_card("ʙ ᴏ ᴛ  ɪ ɴ s ᴘ ᴇ ᴄ ᴛ ᴏ ʀ", "Instance Diagnostics & Control")
+    safe_bot_name = html.escape(bot_data.get('bot_name', 'Unnamed Bot'))
 
     text = (
-        f"🤖 **Bot Details: {bot_data['bot_name']}**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📊 **Status:** {status_emoji} `{status}`\n"
-        f"🆔 **Bot ID:** `{bot_data['bot_id']}`\n"
-        f"🔑 **Token:** `{token_masked}`\n"
-        f"📅 **Created:** `{created_str}`\n"
-        f"🔄 **Auto-Restart:** `{'Enabled' if bot_data.get('auto_restart') else 'Disabled'}`\n\n"
-        "Use the keyboard menu below to control this bot:"
+        f"{header}\n\n"
+        "<b>🤖 Instance Overview:</b>\n"
+        f"<blockquote>• <b>Name:</b> <b>{safe_bot_name}</b>\n"
+        f"• <b>Bot ID:</b> <code>#{html.escape(bot_id)}</code>\n"
+        f"• <b>Status:</b> {status_badge}\n"
+        f"• <b>PID:</b> <code>{html.escape(pid_str)}</code>\n"
+        f"• <b>Uptime:</b> <code>{html.escape(uptime_str)}</code></blockquote>\n\n"
+        "<b>⚙️ Configuration & Metadata:</b>\n"
+        f"<blockquote>• <b>API Token:</b> <code>{html.escape(token_masked)}</code>\n"
+        f"• <b>Auto-Restart:</b> <code>{auto_restart_str}</code>\n"
+        f"• <b>Created:</b> <code>{html.escape(created_str)}</code></blockquote>\n\n"
+        "👇 <i>Use the persistent keyboard below to manage this instance:</i>"
     )
 
     keyboard = get_bot_detail_reply_keyboard(bot_id, status)
     if update.callback_query:
-        await update.callback_query.message.reply_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        await update.callback_query.message.reply_text(text, reply_markup=keyboard, parse_mode="HTML")
     else:
-        await update.message.reply_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        await update.message.reply_text(text, reply_markup=keyboard, parse_mode="HTML")
 
 async def handle_bot_action(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str = None, bot_id: str = None):
     user = update.effective_user
     user_id = user.id
     db_user = database.get_or_create_user(user_id)
     if db_user['is_banned']:
+        msg = (
+            f"{make_header_card('ᴀ ᴄ ᴄ ᴏ ᴜ ɴ ᴛ  s ᴜ s ᴘ ᴇ ɴ ᴅ ᴇ ᴅ', 'Access Denied')}\n\n"
+            "<blockquote>🚫 <b>Access Restricted:</b> Your account has been suspended by the administrator.</blockquote>"
+        )
         if update.callback_query:
             await update.callback_query.answer("🚫 Account Suspended", show_alert=True)
+            await update.effective_message.reply_text(msg, parse_mode="HTML")
         else:
-            await update.message.reply_text("🚫 Your account has been suspended.")
+            await update.message.reply_text(msg, parse_mode="HTML")
         return
 
     text_input = update.message.text if (update.message and update.message.text) else ""
@@ -400,47 +505,70 @@ async def handle_bot_action(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             await update.message.reply_text(msg, reply_markup=get_main_reply_keyboard(user_id))
         return
 
+    safe_bot_name = html.escape(bot_data.get('bot_name', 'Unnamed Bot'))
+
     if action == "start":
         success, msg = await bot_manager.start_bot(bot_id)
-        icon = "🟢" if success else "⚠️"
-        await update.effective_message.reply_text(f"{icon} **Start Bot Result:** {msg}", parse_mode="Markdown")
+        header = make_header_card("ᴀ ᴄ ᴛ ɪ ᴏ ɴ  ᴇ x ᴇ ᴄ ᴜ ᴛ ɪ ᴏ ɴ", "Start Instance")
+        resp = (
+            f"{header}\n\n"
+            f"<blockquote>🟢 <b>Bot Start Result:</b>\n{html.escape(msg)}</blockquote>"
+        )
+        await update.effective_message.reply_text(resp, parse_mode="HTML")
         await show_bot_details(update, context, bot_id)
 
     elif action == "stop":
         success, msg = await bot_manager.stop_bot(bot_id)
-        icon = "⏹️" if success else "⚠️"
-        await update.effective_message.reply_text(f"{icon} **Stop Bot Result:** {msg}", parse_mode="Markdown")
+        header = make_header_card("ᴀ ᴄ ᴛ ɪ ᴏ ɴ  ᴇ x ᴇ ᴄ ᴜ ᴛ ɪ ᴏ ɴ", "Stop Instance")
+        resp = (
+            f"{header}\n\n"
+            f"<blockquote>⏹️ <b>Bot Stop Result:</b>\n{html.escape(msg)}</blockquote>"
+        )
+        await update.effective_message.reply_text(resp, parse_mode="HTML")
         await show_bot_details(update, context, bot_id)
 
     elif action == "restart":
         success, msg = await bot_manager.restart_bot(bot_id)
-        icon = "🔄" if success else "⚠️"
-        await update.effective_message.reply_text(f"{icon} **Restart Bot Result:** {msg}", parse_mode="Markdown")
+        header = make_header_card("ᴀ ᴄ ᴛ ɪ ᴏ ɴ  ᴇ x ᴇ ᴄ ᴜ ᴛ ɪ ᴏ ɴ", "Restart Instance")
+        resp = (
+            f"{header}\n\n"
+            f"<blockquote>🔄 <b>Bot Restart Result:</b>\n{html.escape(msg)}</blockquote>"
+        )
+        await update.effective_message.reply_text(resp, parse_mode="HTML")
         await show_bot_details(update, context, bot_id)
 
     elif action == "logs":
         logs = bot_manager.get_logs(bot_id, lines=25)
         if not logs.strip():
             logs = "No console logs recorded yet for this bot instance."
-        text = f"📜 **Live Console Logs (`{bot_id}`):**\n\n```\n{logs[-3500:]}\n```"
+        header = make_header_card("ʟ ɪ ᴠ ᴇ  ᴄ ᴏ ɴ s ᴏ ʟ ᴇ  ʟ ᴏ ɢ s", f"Instance #{html.escape(bot_id)}")
+        safe_logs = html.escape(logs[-3500:])
+        text = (
+            f"{header}\n\n"
+            f"<pre><code class=\"language-log\">{safe_logs}</code></pre>\n\n"
+            "<blockquote>💡 <i>Displaying the most recent 25 log lines. Live streaming is active.</i></blockquote>"
+        )
         status = bot_data['status']
         await update.effective_message.reply_text(
             text,
             reply_markup=get_bot_detail_reply_keyboard(bot_id, status),
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
 
     elif action == "delete_confirm":
+        header = make_header_card("ᴄ ᴏ ɴ ғ ɪ ʀ ᴍ  ᴅ ᴇ ʟ ᴇ ᴛ ɪ ᴏ ɴ", "Permanent Instance Removal")
         text = (
-            f"⚠️ **Confirm Bot Deletion: {bot_data['bot_name']}**\n"
-            "━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"Are you sure you want to permanently delete bot `#{bot_id}` and all its files?\n\n"
-            "⛔ *This action cannot be undone.*"
+            f"{header}\n\n"
+            f"<blockquote>⚠️ <b>Are you sure you want to permanently delete:</b>\n"
+            f"• <b>Bot:</b> <b>{safe_bot_name}</b> (<code>#{html.escape(bot_id)}</code>)\n"
+            "• <b>Files:</b> Source files and execution logs will be erased.\n\n"
+            "⛔ <i>This action cannot be undone.</i></blockquote>\n\n"
+            "👇 <i>Tap <b>⚠️ Confirm Delete</b> to proceed or <b>❌ Cancel Delete</b> to abort:</i>"
         )
         await update.effective_message.reply_text(
             text,
             reply_markup=get_delete_confirm_keyboard(bot_id),
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
 
     elif action == "delete_execute":
@@ -449,11 +577,22 @@ async def handle_bot_action(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         if os.path.exists(script_dir):
             shutil.rmtree(script_dir, ignore_errors=True)
         database.delete_bot_record(bot_id)
-        await update.effective_message.reply_text(f"🗑️ Bot `{bot_data['bot_name']}` (`#{bot_id}`) was successfully deleted.")
+        header = make_header_card("ɪ ɴ s ᴛ ᴀ ɴ ᴄ ᴇ  ᴅ ᴇ ʟ ᴇ ᴛ ᴇ ᴅ", "Cleanup Complete")
+        text = (
+            f"{header}\n\n"
+            f"<blockquote>🗑️ Bot <b>{safe_bot_name}</b> (<code>#{html.escape(bot_id)}</code>) "
+            "and all associated workspace files have been permanently removed.</blockquote>"
+        )
+        await update.effective_message.reply_text(text, parse_mode="HTML")
         await show_my_bots(update, context, page=0)
 
     elif action == "cancel_delete":
-        await update.effective_message.reply_text("❌ Deletion cancelled.")
+        header = make_header_card("ᴀ ᴄ ᴛ ɪ ᴏ ɴ  ᴀ ʙ ᴏ ʀ ᴛ ᴇ ᴅ", "Deletion Cancelled")
+        text = (
+            f"{header}\n\n"
+            f"<blockquote>Deletion of bot <b>{safe_bot_name}</b> (<code>#{html.escape(bot_id)}</code>) was cancelled.</blockquote>"
+        )
+        await update.effective_message.reply_text(text, parse_mode="HTML")
         await show_bot_details(update, context, bot_id)
 
 async def show_account_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -461,10 +600,15 @@ async def show_account_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = user.id
     db_user = database.get_or_create_user(user_id)
     if db_user['is_banned']:
+        msg = (
+            f"{make_header_card('ᴀ ᴄ ᴄ ᴏ ᴜ ɴ ᴛ  s ᴜ s ᴘ ᴇ ɴ ᴅ ᴇ ᴅ', 'Access Denied')}\n\n"
+            "<blockquote>🚫 <b>Access Restricted:</b> Your account has been suspended by the administrator.</blockquote>"
+        )
         if update.callback_query:
             await update.callback_query.answer("🚫 Account Suspended", show_alert=True)
+            await update.effective_message.reply_text(msg, parse_mode="HTML")
         else:
-            await update.message.reply_text("🚫 Your account has been suspended.")
+            await update.message.reply_text(msg, parse_mode="HTML")
         return
 
     is_sub, unjoined = await check_user_subscription(context.bot, user_id)
@@ -475,33 +619,43 @@ async def show_account_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_bots = database.get_user_bots(user_id)
     max_slots = db_user.get('max_slots', 3)
     running_cnt = sum(1 for b in user_bots if b['status'] == 'RUNNING')
+    available_slots = max(0, max_slots - len(user_bots))
+    username_str = f"@{html.escape(user.username)}" if user.username else "<code>N/A</code>"
 
+    header = make_header_card("ᴀ ᴄ ᴄ ᴏ ᴜ ɴ ᴛ  ǫ ᴜ ᴏ ᴛ ᴀ", "Resource Allocation & Limits")
     text = (
-        "📊 **My Account & Resource Quota**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"👤 **User ID:** `{user_id}`\n"
-        f"🏷️ **Username:** @{user.username or 'N/A'}\n"
-        f"📦 **Total Slots:** `{max_slots}`\n"
-        f"🤖 **Hosted Bots:** `{len(user_bots)} / {max_slots}`\n"
-        f"🟢 **Active Bots:** `{running_cnt}`\n"
-        f"⚪ **Available Slots:** `{max(0, max_slots - len(user_bots))}`\n\n"
-        "💡 Need extra bot slots? Contact the platform administrator."
+        f"{header}\n\n"
+        "<b>👤 Account Identity:</b>\n"
+        f"<blockquote>• <b>User ID:</b> <code>{user_id}</code>\n"
+        f"• <b>Username:</b> {username_str}\n"
+        "• <b>Plan Tier:</b> <code>Standard Developer</code></blockquote>\n\n"
+        "<b>📦 Infrastructure Quota:</b>\n"
+        f"<blockquote>• <b>Total Slots:</b> <code>{max_slots}</code>\n"
+        f"• <b>Provisioned Bots:</b> <code>{len(user_bots)} / {max_slots}</code>\n"
+        f"• <b>Active Instances:</b> <code>{running_cnt}</code>\n"
+        f"• <b>Available Slots:</b> <code>{available_slots}</code></blockquote>\n\n"
+        "<blockquote>💡 <i>Need additional bot capacity or dedicated resources? Contact platform support.</i></blockquote>"
     )
     reply_kb = get_back_to_main_keyboard()
     if update.callback_query:
-        await update.callback_query.message.reply_text(text, reply_markup=reply_kb, parse_mode="Markdown")
+        await update.callback_query.message.reply_text(text, reply_markup=reply_kb, parse_mode="HTML")
     else:
-        await update.message.reply_text(text, reply_markup=reply_kb, parse_mode="Markdown")
+        await update.message.reply_text(text, reply_markup=reply_kb, parse_mode="HTML")
 
 async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = user.id
     db_user = database.get_or_create_user(user_id)
     if db_user['is_banned']:
+        msg = (
+            f"{make_header_card('ᴀ ᴄ ᴄ ᴏ ᴜ ɴ ᴛ  s ᴜ s ᴘ ᴇ ɴ ᴅ ᴇ ᴅ', 'Access Denied')}\n\n"
+            "<blockquote>🚫 <b>Access Restricted:</b> Your account has been suspended by the administrator.</blockquote>"
+        )
         if update.callback_query:
             await update.callback_query.answer("🚫 Account Suspended", show_alert=True)
+            await update.effective_message.reply_text(msg, parse_mode="HTML")
         else:
-            await update.message.reply_text("🚫 Your account has been suspended.")
+            await update.message.reply_text(msg, parse_mode="HTML")
         return
 
     is_sub, unjoined = await check_user_subscription(context.bot, user_id)
@@ -509,36 +663,44 @@ async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_force_sub_prompt(update, context, unjoined)
         return
 
+    header = make_header_card("ɢ ᴜ ɪ ᴅ ᴇ ʟ ɪ ɴ ᴇ s  &  ʜ ᴇ ʟ ᴘ", "Quick Start & Deployment Manual")
     text = (
-        "❓ **Gravix-Host Guidelines & Help**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "1️⃣ **Get a Bot Token:**\n"
-        "   • Open @BotFather on Telegram.\n"
-        "   • Send `/newbot` and follow instructions to get your API Token.\n\n"
-        "2️⃣ **How to Host a Bot:**\n"
-        "   • Tap **➕ Host New Bot** or **⚡ Quick Template Deploy** in the keyboard menu.\n"
-        "   • Enter your Bot Token from @BotFather.\n"
-        "   • Upload your Python `.py` script or select a pre-built template.\n\n"
-        "3️⃣ **Supported Python Libraries:**\n"
-        "   • `python-telegram-bot`, `telebot (pyTelegramBotAPI)`, `aiogram`, `requests`, `aiohttp`, `httpx`.\n\n"
-        "4️⃣ **Managing Bots:**\n"
-        "   • Access logs, restart, and monitor status in **🤖 My Hosted Bots**."
+        f"{header}\n\n"
+        "<b>🚀 4-Step Deployment Guide:</b>\n"
+        "<blockquote><b>1️⃣ Obtain a Bot Token:</b>\n"
+        "• Open @BotFather on Telegram.\n"
+        "• Send <code>/newbot</code> and follow prompts to obtain your API Token.\n\n"
+        "<b>2️⃣ Deploy Your Bot:</b>\n"
+        "• Tap <b>➕ Host New Bot</b> or <b>⚡ Quick Template Deploy</b>.\n"
+        "• Provide your BotFather token.\n"
+        "• Upload your <code>.py</code> file or select a ready-made template.\n\n"
+        "<b>3️⃣ Supported Frameworks:</b>\n"
+        "• <code>python-telegram-bot</code>, <code>aiogram</code>, <code>pyTelegramBotAPI</code>\n"
+        "• <code>requests</code>, <code>httpx</code>, <code>aiohttp</code>, <code>asyncio</code>\n\n"
+        "<b>4️⃣ Lifecycle & Diagnostics:</b>\n"
+        "• Access live logs, restart, and monitor status anytime in <b>🤖 My Hosted Bots</b>.</blockquote>\n\n"
+        "<blockquote>💡 <i>For optimal stability, ensure your bot uses standard polling or webhook architectures without hardcoded local paths.</i></blockquote>"
     )
     reply_kb = get_back_to_main_keyboard()
     if update.callback_query:
-        await update.callback_query.message.reply_text(text, reply_markup=reply_kb, parse_mode="Markdown")
+        await update.callback_query.message.reply_text(text, reply_markup=reply_kb, parse_mode="HTML")
     else:
-        await update.message.reply_text(text, reply_markup=reply_kb, parse_mode="Markdown")
+        await update.message.reply_text(text, reply_markup=reply_kb, parse_mode="HTML")
 
 async def show_templates_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = user.id
     db_user = database.get_or_create_user(user_id)
     if db_user['is_banned']:
+        msg = (
+            f"{make_header_card('ᴀ ᴄ ᴄ ᴏ ᴜ ɴ ᴛ  s ᴜ s ᴘ ᴇ ɴ ᴅ ᴇ ᴅ', 'Access Denied')}\n\n"
+            "<blockquote>🚫 <b>Access Restricted:</b> Your account has been suspended by the administrator.</blockquote>"
+        )
         if update.callback_query:
             await update.callback_query.answer("🚫 Account Suspended", show_alert=True)
+            await update.effective_message.reply_text(msg, parse_mode="HTML")
         else:
-            await update.message.reply_text("🚫 Your account has been suspended.")
+            await update.message.reply_text(msg, parse_mode="HTML")
         return
 
     is_sub, unjoined = await check_user_subscription(context.bot, user_id)
@@ -548,26 +710,39 @@ async def show_templates_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     maint = database.get_setting("maintenance_mode", "0") == "1"
     if maint and user_id != ADMIN_ID:
-        msg = "⚠️ Platform is under maintenance. New bot deployments are paused."
+        msg = (
+            f"{make_header_card('ᴍ ᴀ ɪ ɴ ᴛ ᴇ ɴ ᴀ ɴ ᴄ ᴇ  ᴍ ᴏ ᴅ ᴇ', 'Temporary System Pause')}\n\n"
+            "<blockquote>⚠️ <b>Notice:</b> Platform is currently undergoing maintenance. New bot deployments are paused.</blockquote>"
+        )
         if update.callback_query:
-            await update.callback_query.answer(msg, show_alert=True)
+            await update.callback_query.answer("⚠️ Maintenance Mode Active", show_alert=True)
+            await update.effective_message.reply_text(msg, reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
         else:
-            await update.message.reply_text(msg, reply_markup=get_main_reply_keyboard(user_id))
+            await update.message.reply_text(msg, reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
         return
 
-    text = (
-        "⚡ **Quick 1-Click Bot Templates**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "Select a pre-built bot template from the keyboard menu below to deploy instantly:\n"
-    )
+    header = make_header_card("ǫ ᴜ ɪ ᴄ ᴋ  ᴛ ᴇ ᴍ ᴘ ʟ ᴀ ᴛ ᴇ s", "1-Click Ready-to-Deploy Instances")
+    
+    tpl_lines = []
     for key, tinfo in TEMPLATES.items():
-        text += f"\n• **{tinfo['name']}**\n  _{tinfo['description']}_\n"
+        tname = html.escape(tinfo.get('name', 'Template'))
+        tdesc = html.escape(tinfo.get('description', ''))
+        tpl_lines.append(f"• <b>{tname}</b>\n  <i>{tdesc}</i>")
+
+    tpl_block = "\n\n".join(tpl_lines)
+    text = (
+        f"{header}\n\n"
+        "<blockquote>Deploy production-ready Telegram bots in seconds. Choose a template from the menu below:</blockquote>\n\n"
+        "<b>📦 Available Quick Templates:</b>\n"
+        f"<blockquote>\n{tpl_block}\n</blockquote>\n\n"
+        "👇 <i>Tap a template button on the keyboard below to begin instant deployment:</i>"
+    )
 
     keyboard = get_templates_reply_keyboard()
     if update.callback_query:
-        await update.callback_query.message.reply_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        await update.callback_query.message.reply_text(text, reply_markup=keyboard, parse_mode="HTML")
     else:
-        await update.message.reply_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        await update.message.reply_text(text, reply_markup=keyboard, parse_mode="HTML")
 
 # ---------------------------------------------------------
 # Quick Template Deployment Conversation Flow
@@ -579,10 +754,15 @@ async def template_select_start(update: Update, context: ContextTypes.DEFAULT_TY
 
     db_user = database.get_or_create_user(user_id)
     if db_user['is_banned']:
+        msg = (
+            f"{make_header_card('ᴀ ᴄ ᴄ ᴏ ᴜ ɴ ᴛ  s ᴜ s ᴘ ᴇ ɴ ᴅ ᴇ ᴅ', 'Access Denied')}\n\n"
+            "<blockquote>🚫 <b>Access Restricted:</b> Your account has been suspended.</blockquote>"
+        )
         if update.callback_query:
             await update.callback_query.answer("🚫 Account Suspended", show_alert=True)
+            await update.effective_message.reply_text(msg, parse_mode="HTML")
         else:
-            await update.message.reply_text("🚫 Your account has been suspended.")
+            await update.message.reply_text(msg, parse_mode="HTML")
         return ConversationHandler.END
 
     is_sub, unjoined = await check_user_subscription(context.bot, user_id)
@@ -594,21 +774,31 @@ async def template_select_start(update: Update, context: ContextTypes.DEFAULT_TY
 
     maint = database.get_setting("maintenance_mode", "0") == "1"
     if maint and user_id != ADMIN_ID:
-        msg = "⚠️ Platform is under maintenance. New bot deployments are paused."
+        msg = (
+            f"{make_header_card('ᴍ ᴀ ɪ ɴ ᴛ ᴇ ɴ ᴀ ɴ ᴄ ᴇ  ᴍ ᴏ ᴅ ᴇ', 'Temporary System Pause')}\n\n"
+            "<blockquote>⚠️ <b>Notice:</b> Platform is currently under maintenance. New bot deployments are paused.</blockquote>"
+        )
         if update.callback_query:
-            await update.callback_query.answer(msg, show_alert=True)
+            await update.callback_query.answer("⚠️ Maintenance Mode Active", show_alert=True)
+            await update.effective_message.reply_text(msg, reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
         else:
-            await update.message.reply_text(msg, reply_markup=get_main_reply_keyboard(user_id))
+            await update.message.reply_text(msg, reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
         return ConversationHandler.END
 
     user_bots = database.get_user_bots(user_id)
     max_slots = db_user.get('max_slots', 3)
     if len(user_bots) >= max_slots:
-        msg = f"⚠️ Slot Limit Reached ({len(user_bots)}/{max_slots} bots)."
+        msg = (
+            f"{make_header_card('ǫ ᴜ ᴏ ᴛ ᴀ  ʟ ɪ ᴍ ɪ ᴛ  ʀ ᴇ ᴀ ᴄ ʜ ᴇ ᴅ', 'Resource Capacity Exceeded')}\n\n"
+            f"<blockquote>⚠️ You have reached your slot limit of <code>{max_slots}</code> bots "
+            f"(<code>{len(user_bots)}/{max_slots}</code>).\n\n"
+            "Please delete an unused bot from <b>🤖 My Hosted Bots</b> or contact Admin for additional capacity.</blockquote>"
+        )
         if update.callback_query:
-            await update.callback_query.answer(msg, show_alert=True)
+            await update.callback_query.answer("⚠️ Slot Limit Reached", show_alert=True)
+            await update.effective_message.reply_text(msg, reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
         else:
-            await update.message.reply_text(msg, reply_markup=get_main_reply_keyboard(user_id))
+            await update.message.reply_text(msg, reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
         return ConversationHandler.END
 
     tpl_key = None
@@ -624,8 +814,9 @@ async def template_select_start(update: Update, context: ContextTypes.DEFAULT_TY
 
     if not tpl_key or tpl_key not in TEMPLATES:
         await update.effective_message.reply_text(
-            "⚠️ Template not recognized. Please choose a valid template from the menu below:",
-            reply_markup=get_templates_reply_keyboard()
+            "<blockquote>⚠️ <b>Template Not Recognized:</b> Please select a valid template from the keyboard menu below.</blockquote>",
+            reply_markup=get_templates_reply_keyboard(),
+            parse_mode="HTML"
         )
         return ConversationHandler.END
 
@@ -633,26 +824,33 @@ async def template_select_start(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data['active_flow'] = 'tpl'
     tinfo = TEMPLATES[tpl_key]
 
+    header = make_header_card("ǫ ᴜ ɪ ᴄ ᴋ  ᴛ ᴇ ᴍ ᴘ ʟ ᴀ ᴛ ᴇ  ᴅ ᴇ ᴘ ʟ ᴏ ʏ", "1-Click Automated Setup")
+    safe_tname = html.escape(tinfo.get('name', 'Template'))
+    safe_tdesc = html.escape(tinfo.get('description', ''))
+
     text = (
-        f"⚡ **Deploy: {tinfo['name']}**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"ℹ️ {tinfo['description']}\n\n"
-        "Please send your **Telegram Bot Token** from @BotFather:\n"
-        "*(Example: `1234567890:AAH_sampleToken...`)*\n\n"
-        "Send token as text or tap **❌ Cancel** below to abort."
+        f"{header}\n\n"
+        "<b>📦 Selected Template:</b>\n"
+        f"<blockquote>• <b>Template:</b> <b>{safe_tname}</b>\n"
+        f"• <b>Overview:</b> <i>{safe_tdesc}</i></blockquote>\n\n"
+        "<b>🔑 Telegram Bot Token:</b>\n"
+        "<blockquote>Please send your bot API token obtained from @BotFather.\n"
+        "<i>Example:</i> <code>1234567890:AAH_sampleToken...</code></blockquote>\n\n"
+        "👇 <i>Send the token as text or tap <b>❌ Cancel</b> below:</i>"
     )
     cancel_kb = get_cancel_keyboard()
     if update.callback_query:
-        await update.callback_query.message.reply_text(text, reply_markup=cancel_kb, parse_mode="Markdown")
+        await update.callback_query.message.reply_text(text, reply_markup=cancel_kb, parse_mode="HTML")
     else:
-        await update.message.reply_text(text, reply_markup=cancel_kb, parse_mode="Markdown")
+        await update.message.reply_text(text, reply_markup=cancel_kb, parse_mode="HTML")
     return TPL_TOKEN
 
 async def template_token_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('active_flow') != 'tpl':
         await update.message.reply_text(
-            "⚠️ This template session expired. Please open ⚡ Quick Template Deploy again from /start.",
-            reply_markup=get_main_reply_keyboard(update.effective_user.id)
+            "<blockquote>⚠️ <b>Session Expired:</b> Please reopen <b>⚡ Quick Template Deploy</b> from the main menu.</blockquote>",
+            reply_markup=get_main_reply_keyboard(update.effective_user.id),
+            parse_mode="HTML"
         )
         return ConversationHandler.END
 
@@ -664,16 +862,20 @@ async def template_token_received(update: Update, context: ContextTypes.DEFAULT_
 
     if token == BOT_TOKEN:
         await update.message.reply_text(
-            "⚠️ You cannot host a bot using this platform's own token. Create a new bot with @BotFather and send its token:",
-            reply_markup=get_cancel_keyboard()
+            "<blockquote>⚠️ <b>Invalid Token:</b> You cannot host a bot using this platform's own bot token. "
+            "Please create a distinct bot with @BotFather and send its token:</blockquote>",
+            reply_markup=get_cancel_keyboard(),
+            parse_mode="HTML"
         )
         return TPL_TOKEN
 
     is_valid, bot_uname, err_msg = await verify_telegram_token(token)
     if not is_valid:
         await update.message.reply_text(
-            f"⚠️ {err_msg}\n\nPlease enter a valid Bot Token from @BotFather:",
-            reply_markup=get_cancel_keyboard()
+            f"<blockquote>⚠️ <b>Token Validation Failed:</b>\n{html.escape(err_msg)}\n\n"
+            "Please copy and paste a valid Bot Token from @BotFather:</blockquote>",
+            reply_markup=get_cancel_keyboard(),
+            parse_mode="HTML"
         )
         return TPL_TOKEN
 
@@ -687,31 +889,41 @@ async def template_token_received(update: Update, context: ContextTypes.DEFAULT_
         f.write(tinfo['code'])
 
     database.create_hosted_bot(bot_id, user_id, bot_name, token, script_path)
-    status_msg = await update.message.reply_text("⚙️ Provisioning template and launching bot instance...")
+    status_msg = await update.message.reply_text("⚙️ <i>Provisioning container and launching template instance...</i>", parse_mode="HTML")
 
     success, msg = await bot_manager.start_bot(bot_id)
     context.user_data.clear()
 
-    status_icon = "🟢 RUNNING" if success else "🔴 FAILED TO START"
-    resp_text = (
-        f"🎉 **Template Bot Successfully Launched!**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🤖 **Bot Name:** `{bot_name}`\n"
-        f"🆔 **Bot ID:** `{bot_id}`\n"
-        f"📊 **Status:** {status_icon}\n"
-        f"ℹ️ **Details:** {msg}\n\n"
-        "Your bot is now live and running 24/7 on Gravix-Host."
-    )
     bot_status = "RUNNING" if success else "FAILED"
-    await status_msg.reply_text(resp_text, reply_markup=get_bot_detail_reply_keyboard(bot_id, bot_status), parse_mode="Markdown")
+    status_badge = get_status_badge(bot_status)
+    header = make_header_card("ᴛ ᴇ ᴍ ᴘ ʟ ᴀ ᴛ ᴇ  ʟ ᴀ ᴜ ɴ ᴄ ʜ ᴇ ᴅ !", "1-Click Provisioning Complete")
+    safe_bot_name = html.escape(bot_name)
+    safe_msg = html.escape(msg)
+
+    resp_text = (
+        f"{header}\n\n"
+        "<blockquote>🎉 <b>Success!</b> The pre-built template engine has been compiled and started.</blockquote>\n\n"
+        "<b>📊 Instance Details:</b>\n"
+        f"<blockquote>• <b>Bot Name:</b> <b>{safe_bot_name}</b>\n"
+        f"• <b>Bot ID:</b> <code>#{html.escape(bot_id)}</code>\n"
+        f"• <b>Status:</b> {status_badge}\n"
+        f"• <b>Diagnostics:</b> {safe_msg}</blockquote>\n\n"
+        "<blockquote>💡 <i>Your bot is now live and running 24/7 on <b>ɢ ʀ ᴀ ᴠ ɪ x - ʜ ᴏ s ᴛ</b>.</i></blockquote>"
+    )
+    await status_msg.reply_text(resp_text, reply_markup=get_bot_detail_reply_keyboard(bot_id, bot_status), parse_mode="HTML")
     return ConversationHandler.END
 
 async def cancel_tpl(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     user_id = update.effective_user.id
+    header = make_header_card("ᴅ ᴇ ᴘ ʟ ᴏ ʏ ᴍ ᴇ ɴ ᴛ  ᴄ ᴀ ɴ ᴄ ᴇ ʟ ʟ ᴇ ᴅ", "Template Setup Aborted")
+    text = (
+        f"{header}\n\n"
+        "<blockquote>❌ Template deployment cancelled. No resources were provisioned.</blockquote>"
+    )
     if update.callback_query:
         await update.callback_query.answer("Template deployment cancelled.")
-    await update.effective_message.reply_text("❌ Template deployment cancelled.", reply_markup=get_main_reply_keyboard(user_id))
+    await update.effective_message.reply_text(text, reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
     return ConversationHandler.END
 
 # ---------------------------------------------------------
@@ -724,10 +936,15 @@ async def host_bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     db_user = database.get_or_create_user(user_id)
     if db_user['is_banned']:
+        msg = (
+            f"{make_header_card('ᴀ ᴄ ᴄ ᴏ ᴜ ɴ ᴛ  s ᴜ s ᴘ ᴇ ɴ ᴅ ᴇ ᴅ', 'Access Denied')}\n\n"
+            "<blockquote>🚫 <b>Access Restricted:</b> Your account has been suspended by the administrator.</blockquote>"
+        )
         if update.callback_query:
             await update.callback_query.answer("🚫 Account Suspended", show_alert=True)
+            await update.effective_message.reply_text(msg, parse_mode="HTML")
         else:
-            await update.message.reply_text("🚫 Your account has been suspended by the administrator.")
+            await update.message.reply_text(msg, parse_mode="HTML")
         return ConversationHandler.END
 
     is_sub, unjoined = await check_user_subscription(context.bot, user_id)
@@ -739,69 +956,89 @@ async def host_bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     maint = database.get_setting("maintenance_mode", "0") == "1"
     if maint and user_id != ADMIN_ID:
-        msg = "⚠️ Platform is under maintenance. New bot deployments are paused."
+        msg = (
+            f"{make_header_card('ᴍ ᴀ ɪ ɴ ᴛ ᴇ ɴ ᴀ ɴ ᴄ ᴇ  ᴍ ᴏ ᴅ ᴇ', 'Temporary System Pause')}\n\n"
+            "<blockquote>⚠️ <b>Notice:</b> Platform is currently undergoing maintenance. New bot deployments are paused.</blockquote>"
+        )
         if update.callback_query:
-            await update.callback_query.answer(msg, show_alert=True)
+            await update.callback_query.answer("⚠️ Maintenance Mode Active", show_alert=True)
+            await update.effective_message.reply_text(msg, reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
         else:
-            await update.message.reply_text(msg, reply_markup=get_main_reply_keyboard(user_id))
+            await update.message.reply_text(msg, reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
         return ConversationHandler.END
 
     user_bots = database.get_user_bots(user_id)
     max_slots = db_user.get('max_slots', 3)
     if len(user_bots) >= max_slots:
-        msg = f"⚠️ Slot Limit Reached ({len(user_bots)}/{max_slots} bots). Please delete an existing bot or contact Admin."
+        msg = (
+            f"{make_header_card('ǫ ᴜ ᴏ ᴛ ᴀ  ʟ ɪ ᴍ ɪ ᴛ  ʀ ᴇ ᴀ ᴄ ʜ ᴇ ᴅ', 'Resource Capacity Exceeded')}\n\n"
+            f"<blockquote>⚠️ You have reached your slot limit of <code>{max_slots}</code> bots "
+            f"(<code>{len(user_bots)}/{max_slots}</code>).\n\n"
+            "Please delete an existing bot from <b>🤖 My Hosted Bots</b> or contact Admin for more slots.</blockquote>"
+        )
         if update.callback_query:
-            await update.callback_query.answer(msg, show_alert=True)
+            await update.callback_query.answer("⚠️ Slot Limit Reached", show_alert=True)
+            await update.effective_message.reply_text(msg, reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
         else:
-            await update.message.reply_text(msg, reply_markup=get_main_reply_keyboard(user_id))
+            await update.message.reply_text(msg, reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
         return ConversationHandler.END
 
     if update.callback_query:
         await update.callback_query.answer()
 
     context.user_data['active_flow'] = 'host'
+    header = make_header_card("ᴄ ᴜ s ᴛ ᴏ ᴍ  ʙ ᴏ ᴛ  ʜ ᴏ s ᴛ ɪ ɴ ɢ", "Step 1 of 3: Instance Identification")
     text = (
-        "➕ **Host a New Bot (Step 1/3)**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "Please enter a **Name** for your bot (e.g. `My Store Bot` or `Music Downloader`):\n\n"
-        "*(Tap ❌ Cancel below or send /cancel to abort)*"
+        f"{header}\n\n"
+        "<blockquote>Please enter a friendly <b>Display Name</b> for your bot.\n"
+        "<i>Example:</i> <code>My Store Bot</code> or <code>Crypto Price Alert</code></blockquote>\n\n"
+        "👇 <i>Type the name in chat or tap <b>❌ Cancel</b> below:</i>"
     )
     cancel_kb = get_cancel_keyboard()
     if update.callback_query:
-        await update.callback_query.message.reply_text(text, reply_markup=cancel_kb, parse_mode="Markdown")
+        await update.callback_query.message.reply_text(text, reply_markup=cancel_kb, parse_mode="HTML")
     else:
-        await update.message.reply_text(text, reply_markup=cancel_kb, parse_mode="Markdown")
+        await update.message.reply_text(text, reply_markup=cancel_kb, parse_mode="HTML")
     return NAME
 
 async def host_bot_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('active_flow') != 'host':
         await update.message.reply_text(
-            "⚠️ This step was interrupted by another action. Please use /start and try again.",
-            reply_markup=get_main_reply_keyboard(update.effective_user.id)
+            "<blockquote>⚠️ <b>Session Interrupted:</b> Please use /start to begin again.</blockquote>",
+            reply_markup=get_main_reply_keyboard(update.effective_user.id),
+            parse_mode="HTML"
         )
         return ConversationHandler.END
 
     bot_name = update.message.text.strip()
     if len(bot_name) < 2 or len(bot_name) > 30:
-        await update.message.reply_text("⚠️ Name must be between 2 and 30 characters. Please enter a valid name:", reply_markup=get_cancel_keyboard())
+        await update.message.reply_text(
+            "<blockquote>⚠️ <b>Invalid Name:</b> Name must be between 2 and 30 characters. Please enter a valid name:</blockquote>",
+            reply_markup=get_cancel_keyboard(),
+            parse_mode="HTML"
+        )
         return NAME
 
     context.user_data['new_bot_name'] = bot_name
+    safe_bot_name = html.escape(bot_name)
+    header = make_header_card("ᴄ ᴜ s ᴛ ᴏ ᴍ  ʙ ᴏ ᴛ  ʜ ᴏ s ᴛ ɪ ɴ ɢ", "Step 2 of 3: API Authentication")
     text = (
-        f"➕ **Host: {bot_name} (Step 2/3)**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "Now send your **Telegram Bot Token** from @BotFather:\n"
-        "(Example: `1234567890:AAH_sampleToken...`)\n\n"
-        "*(Tap ❌ Cancel below or send /cancel to abort)*"
+        f"{header}\n\n"
+        f"<blockquote>Target Bot: <b>{safe_bot_name}</b></blockquote>\n\n"
+        "<b>🔑 Telegram Bot Token:</b>\n"
+        "<blockquote>Please send the API token obtained from @BotFather.\n"
+        "<i>Format:</i> <code>1234567890:AAH_sampleToken...</code></blockquote>\n\n"
+        "👇 <i>Send your token as text or tap <b>❌ Cancel</b> below:</i>"
     )
-    await update.message.reply_text(text, reply_markup=get_cancel_keyboard(), parse_mode="Markdown")
+    await update.message.reply_text(text, reply_markup=get_cancel_keyboard(), parse_mode="HTML")
     return TOKEN
 
 async def host_bot_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('active_flow') != 'host':
         await update.message.reply_text(
-            "⚠️ This step was interrupted by another action. Please resend your bot token to continue.",
-            reply_markup=get_main_reply_keyboard(update.effective_user.id)
+            "<blockquote>⚠️ <b>Session Interrupted:</b> Please resend your bot token to continue.</blockquote>",
+            reply_markup=get_main_reply_keyboard(update.effective_user.id),
+            parse_mode="HTML"
         )
         return ConversationHandler.END
 
@@ -810,35 +1047,48 @@ async def host_bot_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if token == BOT_TOKEN:
         await update.message.reply_text(
-            "⚠️ You cannot host a bot using this platform's own token. Create a new bot with @BotFather and send its token:",
-            reply_markup=get_cancel_keyboard()
+            "<blockquote>⚠️ <b>Invalid Token:</b> You cannot host a bot using this platform's own bot token. "
+            "Create a new bot with @BotFather and send its token:</blockquote>",
+            reply_markup=get_cancel_keyboard(),
+            parse_mode="HTML"
         )
         return TOKEN
 
     is_valid, bot_uname, err_msg = await verify_telegram_token(token)
     if not is_valid:
-        await update.message.reply_text(f"⚠️ {err_msg}\n\nPlease enter a valid Bot Token from @BotFather:", reply_markup=get_cancel_keyboard())
+        await update.message.reply_text(
+            f"<blockquote>⚠️ <b>Token Validation Failed:</b>\n{html.escape(err_msg)}\n\n"
+            "Please copy and paste a valid Bot Token from @BotFather:</blockquote>",
+            reply_markup=get_cancel_keyboard(),
+            parse_mode="HTML"
+        )
         return TOKEN
 
     context.user_data['new_bot_token'] = token
     context.user_data['bot_uname'] = bot_uname
+    bot_name = context.user_data.get('new_bot_name', 'My Bot')
+
+    header = make_header_card("ᴄ ᴜ s ᴛ ᴏ ᴍ  ʙ ᴏ ᴛ  ʜ ᴏ s ᴛ ɪ ɴ ɢ", "Step 3 of 3: Source Code Provisioning")
+    safe_bot_name = html.escape(bot_name)
+    safe_bot_uname = html.escape(bot_uname)
 
     text = (
-        "➕ **Upload Bot Code (Step 3/3)**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "How would you like to provide your bot code?\n\n"
-        "1. **Upload a `.py` file** (Send the Python script as a document)\n"
-        "2. **Paste Python code directly** in chat\n"
-        "3. Or tap **❌ Cancel** below to abort."
+        f"{header}\n\n"
+        f"<blockquote>Target Bot: <b>{safe_bot_name}</b> (<code>@{safe_bot_uname}</code>)</blockquote>\n\n"
+        "<b>📤 Provide Python Source Code:</b>\n"
+        "<blockquote><b>Option 1:</b> Upload your Python script as a <code>.py</code> document.\n"
+        "<b>Option 2:</b> Paste your Python code directly in chat.</blockquote>\n\n"
+        "👇 <i>Send the script file or text, or tap <b>❌ Cancel</b> to abort:</i>"
     )
-    await update.message.reply_text(text, reply_markup=get_cancel_keyboard(), parse_mode="Markdown")
+    await update.message.reply_text(text, reply_markup=get_cancel_keyboard(), parse_mode="HTML")
     return CODE
 
 async def host_bot_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('active_flow') != 'host':
         await update.message.reply_text(
-            "⚠️ This step was interrupted by another action. Please use /start and try again.",
-            reply_markup=get_main_reply_keyboard(update.effective_user.id)
+            "<blockquote>⚠️ <b>Session Interrupted:</b> Please use /start and try again.</blockquote>",
+            reply_markup=get_main_reply_keyboard(update.effective_user.id),
+            parse_mode="HTML"
         )
         return ConversationHandler.END
 
@@ -854,7 +1104,11 @@ async def host_bot_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.document:
         doc = update.message.document
         if not doc.file_name.endswith(".py"):
-            await update.message.reply_text("⚠️ Please upload a valid `.py` Python script.", reply_markup=get_cancel_keyboard())
+            await update.message.reply_text(
+                "<blockquote>⚠️ <b>Invalid File:</b> Please upload a valid Python script ending in <code>.py</code>.</blockquote>",
+                reply_markup=get_cancel_keyboard(),
+                parse_mode="HTML"
+            )
             return CODE
         file = await doc.get_file()
         await file.download_to_drive(custom_path=script_path)
@@ -863,35 +1117,49 @@ async def host_bot_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with open(script_path, "w", encoding="utf-8") as f:
             f.write(code_content)
     else:
-        await update.message.reply_text("⚠️ Please send either a `.py` document or python code text.", reply_markup=get_cancel_keyboard())
+        await update.message.reply_text(
+            "<blockquote>⚠️ <b>Invalid Input:</b> Please send either a <code>.py</code> document or paste python code text.</blockquote>",
+            reply_markup=get_cancel_keyboard(),
+            parse_mode="HTML"
+        )
         return CODE
 
     database.create_hosted_bot(bot_id, user_id, bot_name, bot_token, script_path)
 
-    status_msg = await update.message.reply_text("⚙️ Provisioning environment and starting bot...")
+    status_msg = await update.message.reply_text("⚙️ <i>Provisioning container environment and starting bot...</i>", parse_mode="HTML")
     success, msg = await bot_manager.start_bot(bot_id)
     context.user_data.clear()
 
-    status_icon = "🟢 RUNNING" if success else "🔴 FAILED TO START"
-    resp_text = (
-        f"🎉 **Bot Successfully Hosted!**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🤖 **Bot Name:** `{bot_name}`\n"
-        f"🆔 **Bot ID:** `{bot_id}`\n"
-        f"📊 **Status:** {status_icon}\n"
-        f"ℹ️ **Message:** {msg}\n\n"
-        "You can manage your bot, view real-time logs, or restart it in the **My Hosted Bots** menu."
-    )
     bot_status = "RUNNING" if success else "FAILED"
-    await status_msg.reply_text(resp_text, reply_markup=get_bot_detail_reply_keyboard(bot_id, bot_status), parse_mode="Markdown")
+    status_badge = get_status_badge(bot_status)
+    header = make_header_card("ʙ ᴏ ᴛ  ᴅ ᴇ ᴘ ʟ ᴏ ʏ ᴇ ᴅ !", "Instance Live on Cloud")
+    safe_bot_name = html.escape(bot_name)
+    safe_msg = html.escape(msg)
+
+    resp_text = (
+        f"{header}\n\n"
+        "<blockquote>🎉 <b>Congratulations!</b> Your custom bot has been provisioned and started in an isolated cloud container.</blockquote>\n\n"
+        "<b>📊 Instance Details:</b>\n"
+        f"<blockquote>• <b>Bot Name:</b> <b>{safe_bot_name}</b>\n"
+        f"• <b>Bot ID:</b> <code>#{html.escape(bot_id)}</code>\n"
+        f"• <b>Status:</b> {status_badge}\n"
+        f"• <b>Diagnostics:</b> {safe_msg}</blockquote>\n\n"
+        "<blockquote>💡 <i>You can monitor live logs, restart, or manage this bot from the menu below.</i></blockquote>"
+    )
+    await status_msg.reply_text(resp_text, reply_markup=get_bot_detail_reply_keyboard(bot_id, bot_status), parse_mode="HTML")
     return ConversationHandler.END
 
 async def cancel_host(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     user_id = update.effective_user.id
+    header = make_header_card("ᴅ ᴇ ᴘ ʟ ᴏ ʏ ᴍ ᴇ ɴ ᴛ  ᴄ ᴀ ɴ ᴄ ᴇ ʟ ʟ ᴇ ᴅ", "Hosting Setup Aborted")
+    text = (
+        f"{header}\n\n"
+        "<blockquote>❌ Bot hosting wizard cancelled. No resources were provisioned.</blockquote>"
+    )
     if update.callback_query:
         await update.callback_query.answer("Action cancelled.")
-    await update.effective_message.reply_text("❌ Bot hosting process cancelled.", reply_markup=get_main_reply_keyboard(user_id))
+    await update.effective_message.reply_text(text, reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
     return ConversationHandler.END
 
 # ---------------------------------------------------------
@@ -953,88 +1221,86 @@ async def user_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
     elif data == "user_templates":
         await show_templates_menu(update, context)
 
-async def user_text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def user_text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     if not update.message or not update.message.text:
-        return
+        return False
     text = update.message.text.strip()
     user_id = update.effective_user.id
 
     db_user = database.get_or_create_user(user_id)
     if db_user['is_banned']:
-        await update.message.reply_text("🚫 Your account has been suspended.")
-        return
+        msg = (
+            f"{make_header_card('ᴀ ᴄ ᴄ ᴏ ᴜ ɴ ᴛ  s ᴜ s ᴘ ᴇ ɴ ᴅ ᴇ ᴅ', 'Access Denied')}\n\n"
+            "<blockquote>🚫 <b>Access Restricted:</b> Your account has been suspended.</blockquote>"
+        )
+        await update.message.reply_text(msg, parse_mode="HTML")
+        return True
 
     # Back / Home navigation
     if text in ["🏠 Main Menu", "🔙 Back to Main Menu", "🔄 Refresh"]:
         await start_command(update, context)
-        return
+        return True
 
     # My Bots & Back to My Bots
     if text in ["🤖 My Hosted Bots", "🔙 Back to My Bots"]:
         await show_my_bots(update, context, page=0)
-        return
+        return True
 
     # Pagination
     if text == "⬅️ Prev Bots":
         page = max(0, context.user_data.get('bots_page', 0) - 1)
         await show_my_bots(update, context, page=page)
-        return
+        return True
     if text == "Next Bots ➡️":
         page = context.user_data.get('bots_page', 0) + 1
         await show_my_bots(update, context, page=page)
-        return
+        return True
 
     # Quick Template Deploy
     if text == "⚡ Quick Template Deploy":
         await show_templates_menu(update, context)
-        return
+        return True
 
     # Account & Slots
     if text == "📊 My Account & Slots":
         await show_account_info(update, context)
-        return
+        return True
 
     # Help & Guidelines
     if text == "❓ Help & Guidelines":
         await show_help(update, context)
-        return
+        return True
 
     # Bot Item Selection: e.g. "🟢 My Bot [#a1b2c3d4]"
     bot_select_match = re.search(r"\[#([a-zA-Z0-9_-]+)\]$", text)
     if bot_select_match and not any(k in text for k in ["Start", "Stop", "Restart", "Logs", "Delete"]):
         bot_id = bot_select_match.group(1)
         await show_bot_details(update, context, bot_id)
-        return
+        return True
 
     # Bot Actions from keyboard buttons
     if bot_select_match:
         bot_id = bot_select_match.group(1)
         if "▶️ Start Bot" in text:
             await handle_bot_action(update, context, "start", bot_id)
-            return
+            return True
         elif "⏹️ Stop Bot" in text:
             await handle_bot_action(update, context, "stop", bot_id)
-            return
+            return True
         elif "🔄 Restart Bot" in text:
             await handle_bot_action(update, context, "restart", bot_id)
-            return
+            return True
         elif "📜 View Logs" in text:
             await handle_bot_action(update, context, "logs", bot_id)
-            return
+            return True
         elif "⚠️ Confirm Delete" in text:
             await handle_bot_action(update, context, "delete_execute", bot_id)
-            return
+            return True
         elif "❌ Cancel Delete" in text:
             await handle_bot_action(update, context, "cancel_delete", bot_id)
-            return
+            return True
         elif "🗑️ Delete Bot" in text:
             await handle_bot_action(update, context, "delete_confirm", bot_id)
-            return
+            return True
 
-    # Fallback response
-    await update.message.reply_text(
-        "💡 Please select an option from the keyboard menu below, or use /start.",
-        reply_markup=get_main_reply_keyboard(user_id)
-    )
-
-
+    return False

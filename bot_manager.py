@@ -3,8 +3,9 @@ import os
 import sys
 import time
 import logging
+from datetime import datetime
 from collections import deque
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 import database
 from config import DATA_DIR, MAX_LOG_LINES
 
@@ -23,6 +24,21 @@ class BotProcessManager:
         os.makedirs(log_dir, exist_ok=True)
         return os.path.join(log_dir, f"{bot_id}.log")
 
+    def _append_system_log(self, bot_id: str, message: str):
+        bot_id = str(bot_id).strip()
+        log_file = self.get_log_file_path(bot_id)
+        if bot_id not in self.log_buffers:
+            self.log_buffers[bot_id] = deque(maxlen=MAX_LOG_LINES)
+        
+        ts = datetime.utcnow().strftime("%H:%M:%S")
+        formatted = f"[{ts}] {message}"
+        self.log_buffers[bot_id].append(formatted)
+        try:
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(formatted + "\n")
+        except Exception as e:
+            logger.error(f"Failed writing system log for bot {bot_id}: {e}")
+
     async def _stream_logs(self, bot_id: str, stream, prefix: str = ""):
         bot_id = str(bot_id).strip()
         log_file = self.get_log_file_path(bot_id)
@@ -36,17 +52,20 @@ class BotProcessManager:
                     if not line:
                         break
                     decoded_line = line.decode("utf-8", errors="replace").rstrip()
-                    formatted = f"{prefix}{decoded_line}" if prefix else decoded_line
+                    if not decoded_line:
+                        continue
+                    ts = datetime.utcnow().strftime("%H:%M:%S")
+                    formatted = f"[{ts}] {prefix}{decoded_line}" if prefix else f"[{ts}] {decoded_line}"
                     self.log_buffers[bot_id].append(formatted)
                     f.write(formatted + "\n")
                     f.flush()
         except Exception as e:
             logger.error(f"Error streaming logs for bot {bot_id}: {e}")
 
-    async def start_bot(self, bot_id: str) -> tuple[bool, str]:
+    async def start_bot(self, bot_id: str) -> Tuple[bool, str]:
         bot_id = str(bot_id).strip()
         if bot_id in self.active_processes and self.active_processes[bot_id].returncode is None:
-            return False, "Bot is already running."
+            return False, "Bot is already running and active."
 
         bot_data = database.get_bot(bot_id)
         if not bot_data:
@@ -74,6 +93,9 @@ class BotProcessManager:
             self.active_processes[bot_id] = process
             database.update_bot_status(bot_id, "RUNNING")
 
+            # Append system log entry
+            self._append_system_log(bot_id, f"🚀 [SYSTEM] Process started successfully (PID: {process.pid})")
+
             # Start background log streaming tasks
             t1 = asyncio.create_task(self._stream_logs(bot_id, process.stdout))
             t2 = asyncio.create_task(self._stream_logs(bot_id, process.stderr, prefix="[STDERR] "))
@@ -84,16 +106,17 @@ class BotProcessManager:
         except Exception as e:
             logger.exception(f"Failed to start bot {bot_id}: {e}")
             database.update_bot_status(bot_id, "FAILED")
-            return False, f"Execution failed: {str(e)}"
+            self._append_system_log(bot_id, f"❌ [SYSTEM] Failed to start process: {str(e)}")
+            return False, f"Failed to start bot: {str(e)}"
 
-    async def stop_bot(self, bot_id: str) -> tuple[bool, str]:
+    async def stop_bot(self, bot_id: str) -> Tuple[bool, str]:
         bot_id = str(bot_id).strip()
         process = self.active_processes.get(bot_id)
         if not process or process.returncode is not None:
             self.active_processes.pop(bot_id, None)
             self.restart_history.pop(bot_id, None)
             database.update_bot_status(bot_id, "STOPPED")
-            return True, "Bot was not running."
+            return True, "Bot is not currently running."
 
         try:
             process.terminate()
@@ -106,17 +129,21 @@ class BotProcessManager:
             self.active_processes.pop(bot_id, None)
             self.restart_history.pop(bot_id, None)
             database.update_bot_status(bot_id, "STOPPED")
+            self._append_system_log(bot_id, "⏹️ [SYSTEM] Process stopped successfully.")
             logger.info(f"Bot {bot_id} stopped.")
             return True, "Bot stopped successfully."
         except Exception as e:
             logger.error(f"Error stopping bot {bot_id}: {e}")
             return False, f"Failed to stop bot: {str(e)}"
 
-    async def restart_bot(self, bot_id: str) -> tuple[bool, str]:
+    async def restart_bot(self, bot_id: str) -> Tuple[bool, str]:
         bot_id = str(bot_id).strip()
         await self.stop_bot(bot_id)
         await asyncio.sleep(1)
-        return await self.start_bot(bot_id)
+        success, msg = await self.start_bot(bot_id)
+        if success:
+            return True, msg.replace("started", "restarted")
+        return False, f"Failed to restart bot: {msg}"
 
     def get_logs(self, bot_id: str, lines: int = 25) -> str:
         bot_id = str(bot_id).strip()
@@ -126,20 +153,23 @@ class BotProcessManager:
         if bot_id in self.log_buffers and self.log_buffers[bot_id]:
             recent = list(self.log_buffers[bot_id])[-lines:]
             if recent:
-                return "\n".join(recent)
+                header = f"=== Live Logs for #{bot_id} (Last {len(recent)} lines) ==="
+                return f"{header}\n" + "\n".join(recent)
 
         # Fallback to reading file
         log_file = self.get_log_file_path(bot_id)
         if os.path.exists(log_file):
             try:
                 with open(log_file, "r", encoding="utf-8") as f:
-                    file_lines = f.readlines()
+                    file_lines = [line.rstrip() for line in f.readlines() if line.strip()]
                     if file_lines:
-                        return "".join(file_lines[-lines:])
+                        recent = file_lines[-lines:]
+                        header = f"=== Logs for #{bot_id} (Last {len(recent)} lines) ==="
+                        return f"{header}\n" + "\n".join(recent)
             except Exception as e:
                 return f"Error reading log file: {e}"
 
-        return "No logs generated yet."
+        return "No console logs recorded yet for this bot."
 
     def is_running(self, bot_id: str) -> bool:
         bot_id = str(bot_id).strip()
@@ -164,16 +194,20 @@ class BotProcessManager:
                             if len(hist) >= 5:
                                 hist.clear()
                                 database.update_bot_status(bot_id, "CRASHED")
+                                self._append_system_log(bot_id, "⛔ [SYSTEM] Crash loop detected (5+ restarts in <120s). Auto-restart disabled.")
                                 logger.error(f"Bot {bot_id} is crash-looping (5+ restarts in <120s). Auto-restart disabled; marked CRASHED.")
                                 continue
                             hist.append(now)
+                            self._append_system_log(bot_id, f"🔄 [SYSTEM] Process exited (code {process.returncode}). Auto-restarting ({len(hist)}/5)...")
                             logger.warning(f"Bot {bot_id} exited with code {process.returncode}. Auto-restarting ({len(hist)}/5)...")
                             database.update_bot_status(bot_id, "RESTARTING")
                             await asyncio.sleep(2)
                             await self.start_bot(bot_id)
                         else:
                             self.restart_history.pop(bot_id, None)
-                            database.update_bot_status(bot_id, "CRASHED" if process.returncode != 0 else "STOPPED")
+                            status = "CRASHED" if process.returncode != 0 else "STOPPED"
+                            database.update_bot_status(bot_id, status)
+                            self._append_system_log(bot_id, f"ℹ️ [SYSTEM] Process exited with status code {process.returncode} (marked {status}).")
                             logger.info(f"Bot {bot_id} exited with status {process.returncode}.")
             except Exception as e:
                 logger.error(f"Watchdog error: {e}")

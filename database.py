@@ -1,15 +1,18 @@
 import sqlite3
 import os
+import logging
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from config import DATA_DIR, DEFAULT_MAX_BOTS_PER_USER
 
+logger = logging.getLogger("GravixHost.Database")
 DB_PATH = os.path.join(DATA_DIR, "gravix_host.db")
 
 def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=20.0)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 30000")
     return conn
 
 def init_db():
@@ -17,9 +20,11 @@ def init_db():
     try:
         cursor = conn.cursor()
         
-        # Optimize performance with WAL mode
+        # Optimize performance with WAL mode & memory PRAGMAs
         cursor.execute("PRAGMA journal_mode = WAL")
         cursor.execute("PRAGMA synchronous = NORMAL")
+        cursor.execute("PRAGMA temp_store = MEMORY")
+        cursor.execute("PRAGMA cache_size = -64000")
         
         # Users table
         cursor.execute("""
@@ -45,7 +50,7 @@ def init_db():
             auto_restart INTEGER DEFAULT 1,
             created_at TEXT,
             last_started TEXT,
-            FOREIGN KEY (user_id) REFERENCES users (user_id)
+            FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
         )
         """)
         
@@ -72,6 +77,7 @@ def init_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_joined_at ON users(joined_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_hosted_bots_user_id ON hosted_bots(user_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_hosted_bots_status ON hosted_bots(status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_hosted_bots_created_at ON hosted_bots(created_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_required_channels_created ON required_channels(created_at)")
         
         # Seed default required channels if empty
@@ -92,6 +98,9 @@ def init_db():
         cursor.execute("INSERT OR IGNORE INTO system_settings (key, value) VALUES ('maintenance_mode', '0')")
         
         conn.commit()
+    except Exception as e:
+        logger.error(f"Error during init_db: {e}")
+        raise
     finally:
         conn.close()
 
@@ -168,7 +177,7 @@ def set_user_ban(user_id: int, is_banned: bool):
 
 def set_user_slots(user_id: int, slots: int):
     uid = int(user_id)
-    slots_num = int(slots)
+    slots_num = max(0, int(slots))
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -192,7 +201,7 @@ def delete_user(user_id: int):
 # ==========================================
 
 def create_hosted_bot(bot_id: str, user_id: int, bot_name: str, bot_token: str, script_path: str):
-    bid = str(bot_id)
+    bid = str(bot_id).strip()
     uid = int(user_id)
     conn = get_connection()
     try:
@@ -207,7 +216,7 @@ def create_hosted_bot(bot_id: str, user_id: int, bot_name: str, bot_token: str, 
         conn.close()
 
 def get_bot(bot_id: str) -> Optional[Dict[str, Any]]:
-    bid = str(bot_id)
+    bid = str(bot_id).strip()
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -237,8 +246,8 @@ def get_all_hosted_bots() -> List[Dict[str, Any]]:
         conn.close()
 
 def update_bot_status(bot_id: str, status: str):
-    bid = str(bot_id)
-    stat = str(status)
+    bid = str(bot_id).strip()
+    stat = str(status).strip().upper()
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -252,7 +261,7 @@ def update_bot_status(bot_id: str, status: str):
         conn.close()
 
 def update_bot_auto_restart(bot_id: str, auto_restart: bool):
-    bid = str(bot_id)
+    bid = str(bot_id).strip()
     val = 1 if auto_restart else 0
     conn = get_connection()
     try:
@@ -263,7 +272,7 @@ def update_bot_auto_restart(bot_id: str, auto_restart: bool):
         conn.close()
 
 def delete_bot_record(bot_id: str):
-    bid = str(bot_id)
+    bid = str(bot_id).strip()
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -277,7 +286,7 @@ def delete_bot_record(bot_id: str):
 # ==========================================
 
 def get_setting(key: str, default: str = "") -> str:
-    k = str(key)
+    k = str(key).strip()
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -288,7 +297,7 @@ def get_setting(key: str, default: str = "") -> str:
         conn.close()
 
 def set_setting(key: str, value: str):
-    k = str(key)
+    k = str(key).strip()
     v = str(value)
     conn = get_connection()
     try:
@@ -299,7 +308,7 @@ def set_setting(key: str, value: str):
         conn.close()
 
 def delete_setting(key: str):
-    k = str(key)
+    k = str(key).strip()
     conn = get_connection()
     try:
         cursor = conn.cursor()
