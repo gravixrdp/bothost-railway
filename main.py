@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import sys
 from telegram import Update
 from telegram.ext import (
@@ -42,6 +43,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger("GravixHost.Main")
 
+# An abandoned flow keeps its in-memory state forever, and because host_conv is
+# checked before tpl_conv it would swallow the next plain-text message a user
+# sends - including the bot token meant for a template deploy. Expire stale
+# conversations so they cannot hijack later input.
+CONV_TIMEOUT = 600
+
 async def post_init(application):
     logger.info("Initializing Gravix-Host Database & Storage...")
     database.init_db()
@@ -59,7 +66,7 @@ async def post_init(application):
     logger.info(f"Gravix-Host initialized. Auto-resumed {resumed} bot(s).")
 
 async def general_message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("💡 Please use the interactive menu buttons or /start to interact with Gravix-Host.")
+    await update.message.reply_text("\U0001F4A1 Please use the interactive menu buttons or /start to interact with Gravix-Host.")
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Exception while handling an update: {context.error}")
@@ -69,7 +76,17 @@ def main():
         logger.error("BOT_TOKEN environment variable is not valid! Exiting.")
         sys.exit(1)
 
-    logger.info(f"Starting Gravix-Host Telegram Master Bot (Admin: {ADMIN_ID})...")
+    if not ADMIN_ID:
+        logger.warning("ADMIN_ID is not set - the admin panel will be unreachable.")
+
+    # Logged so that two instances sharing one token are obvious at a glance:
+    # concurrent pollers cause 409 getUpdates conflicts and lose menu state.
+    logger.info(
+        "Starting Gravix-Host Telegram Master Bot (Admin: %s, service: %s, replica: %s)...",
+        ADMIN_ID,
+        os.getenv("RAILWAY_SERVICE_NAME", "local"),
+        os.getenv("RAILWAY_REPLICA_ID", "-")
+    )
     application = (
         ApplicationBuilder()
         .token(BOT_TOKEN)
@@ -89,8 +106,9 @@ def main():
         },
         fallbacks=[
             CommandHandler("cancel", cancel_host),
-            CallbackQueryHandler(cancel_host, pattern="^cancel_host$")
+            CallbackQueryHandler(cancel_host, pattern="^(cancel_host|user_menu)$")
         ],
+        conversation_timeout=CONV_TIMEOUT,
         per_message=False
     )
 
@@ -101,15 +119,16 @@ def main():
         },
         fallbacks=[
             CommandHandler("cancel", cancel_tpl),
-            CallbackQueryHandler(cancel_tpl, pattern="^cancel_tpl$")
+            CallbackQueryHandler(cancel_tpl, pattern="^(cancel_tpl|user_menu)$")
         ],
+        conversation_timeout=CONV_TIMEOUT,
         per_message=False
     )
 
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("admin", admin_panel))
     application.add_handler(CommandHandler("broadcast", broadcast_command))
-    
+
     application.add_handler(host_conv)
     application.add_handler(tpl_conv)
 
