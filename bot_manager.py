@@ -1,6 +1,7 @@
 import asyncio
 import os
 import sys
+import time
 import logging
 from collections import deque
 from typing import Dict, Optional
@@ -14,6 +15,7 @@ class BotProcessManager:
         self.active_processes: Dict[str, asyncio.subprocess.Process] = {}
         self.log_buffers: Dict[str, deque] = {}
         self.log_tasks: Dict[str, asyncio.Task] = {}
+        self.restart_history: Dict[str, deque] = {}
 
     def get_log_file_path(self, bot_id: str) -> str:
         return os.path.join(DATA_DIR, "logs", f"{bot_id}.log")
@@ -22,7 +24,7 @@ class BotProcessManager:
         log_file = self.get_log_file_path(bot_id)
         if bot_id not in self.log_buffers:
             self.log_buffers[bot_id] = deque(maxlen=MAX_LOG_LINES)
-            
+
         try:
             with open(log_file, "a", encoding="utf-8") as f:
                 while True:
@@ -52,6 +54,7 @@ class BotProcessManager:
         working_dir = os.path.dirname(script_path)
         env = os.environ.copy()
         env["BOT_TOKEN"] = bot_data['bot_token']
+        env["OWNER_ID"] = str(bot_data['user_id'])
         env["PYTHONUNBUFFERED"] = "1"
 
         try:
@@ -137,11 +140,23 @@ class BotProcessManager:
                         del self.active_processes[bot_id]
                         bot_data = database.get_bot(bot_id)
                         if bot_data and bot_data.get('auto_restart') and bot_data['status'] == 'RUNNING':
+                            # Crash-loop guard: if a bot keeps dying, stop auto-restarting it.
+                            now = time.monotonic()
+                            hist = self.restart_history.setdefault(bot_id, deque(maxlen=20))
+                            while hist and now - hist[0] > 120:
+                                hist.popleft()
+                            if len(hist) >= 5:
+                                hist.clear()
+                                database.update_bot_status(bot_id, "CRASHED")
+                                logger.error(f"Bot {bot_id} is crash-looping (5+ restarts in <120s). Auto-restart disabled; marked CRASHED.")
+                                continue
+                            hist.append(now)
                             logger.warning(f"Bot {bot_id} exited with code {process.returncode}. Auto-restarting...")
                             database.update_bot_status(bot_id, "RESTARTING")
                             await asyncio.sleep(2)
                             await self.start_bot(bot_id)
                         else:
+                            self.restart_history.pop(bot_id, None)
                             database.update_bot_status(bot_id, "CRASHED" if process.returncode != 0 else "STOPPED")
                             logger.info(f"Bot {bot_id} exited with status {process.returncode}.")
             except Exception as e:
