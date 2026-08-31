@@ -38,6 +38,84 @@ async def verify_telegram_token(token: str) -> tuple[bool, str, str]:
         logger.warning(f"Could not reach Telegram API for token validation: {e}")
         return True, "Bot", ""
 
+async def check_user_subscription(bot, user_id: int) -> tuple[bool, list]:
+    if user_id == ADMIN_ID:
+        return True, []
+
+    channels = []
+    if hasattr(database, "get_required_channels"):
+        try:
+            channels = database.get_required_channels()
+        except Exception as e:
+            logger.warning(f"Error fetching required channels from DB: {e}")
+            channels = []
+
+    if not channels:
+        return True, []
+
+    unjoined = []
+    valid_statuses = {"member", "administrator", "creator", "owner", "restricted"}
+
+    for ch in channels:
+        raw_cid = ch.get("channel_id") if isinstance(ch, dict) else ch["channel_id"]
+        try:
+            cid = int(raw_cid)
+        except (ValueError, TypeError):
+            cid = str(raw_cid)
+
+        try:
+            member = await bot.get_chat_member(chat_id=cid, user_id=user_id)
+            if member.status not in valid_statuses:
+                unjoined.append(ch)
+        except Exception as e:
+            err_text = str(e).lower()
+            if "chat not found" in err_text or "bot was kicked" in err_text or "chat_admin_required" in err_text or "admin" in err_text:
+                logger.warning(f"Bot lacks access to required channel {cid}: {e}")
+            else:
+                logger.info(f"User {user_id} not joined in channel {cid}: {e}")
+                unjoined.append(ch)
+
+    return len(unjoined) == 0, unjoined
+
+def get_force_sub_keyboard(unjoined_channels: list) -> InlineKeyboardMarkup:
+    keyboard = []
+    for ch in unjoined_channels:
+        title = ch.get("title", "Channel") if isinstance(ch, dict) else ch["title"]
+        link = ch.get("invite_link", "") if isinstance(ch, dict) else ch["invite_link"]
+        keyboard.append([InlineKeyboardButton(f"📢 Join {title}", url=link)])
+
+    keyboard.append([InlineKeyboardButton("✅ I Have Joined / Verify", callback_data="verify_fsub")])
+    return InlineKeyboardMarkup(keyboard)
+
+async def send_force_sub_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE, unjoined_channels: list):
+    text = (
+        "🔐 **Access Restricted — Mandatory Channel Join**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        "To use **Gravix-Host** and host your Telegram bots 24/7, you must join our official channels first.\n\n"
+        "📢 **Please join the channel(s) below:**\n"
+        "Click each button below to join the channel, then tap the **Verify** button to activate your account."
+    )
+    keyboard = get_force_sub_keyboard(unjoined_channels)
+    if update.callback_query:
+        try:
+            await update.callback_query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        except Exception:
+            await update.callback_query.message.reply_text(text, reply_markup=keyboard, parse_mode="Markdown")
+    elif update.message:
+        await update.message.reply_text(text, reply_markup=keyboard, parse_mode="Markdown")
+
+async def verify_fsub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+
+    is_sub, unjoined = await check_user_subscription(context.bot, user_id)
+    if is_sub:
+        await query.answer("✅ Verification Successful! Welcome to Gravix-Host.", show_alert=True)
+        await start_command(update, context)
+    else:
+        await query.answer("⚠️ You haven't joined all required channels yet! Please join and try again.", show_alert=True)
+        await send_force_sub_prompt(update, context, unjoined)
+
 def get_main_reply_keyboard(user_id: int):
     keyboard = []
     if user_id == ADMIN_ID:
@@ -79,6 +157,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("🚫 Your account has been suspended by the administrator.")
         return
 
+    is_sub, unjoined = await check_user_subscription(context.bot, user.id)
+    if not is_sub:
+        await send_force_sub_prompt(update, context, unjoined)
+        return
+
     maint = database.get_setting("maintenance_mode", "0") == "1"
     maint_notice = "\n⚠️ *Maintenance mode is currently active.*" if (maint and user.id != ADMIN_ID) else ""
 
@@ -97,7 +180,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     reply_kb = get_main_reply_keyboard(user.id)
     if update.callback_query:
-        await update.callback_query.answer()
+        try:
+            await update.callback_query.answer()
+        except Exception:
+            pass
         await update.callback_query.message.reply_text(text, reply_markup=reply_kb, parse_mode="Markdown")
     else:
         await update.message.reply_text(text, reply_markup=reply_kb, parse_mode="Markdown")
@@ -111,6 +197,11 @@ async def show_my_bots(update: Update, context: ContextTypes.DEFAULT_TYPE, page:
             await update.callback_query.answer("🚫 Account Suspended", show_alert=True)
         else:
             await update.message.reply_text("🚫 Your account has been suspended.")
+        return
+
+    is_sub, unjoined = await check_user_subscription(context.bot, user_id)
+    if not is_sub:
+        await send_force_sub_prompt(update, context, unjoined)
         return
 
     user_bots = database.get_user_bots(user_id)
@@ -169,6 +260,11 @@ async def show_account_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("🚫 Your account has been suspended.")
         return
 
+    is_sub, unjoined = await check_user_subscription(context.bot, user_id)
+    if not is_sub:
+        await send_force_sub_prompt(update, context, unjoined)
+        return
+
     user_bots = database.get_user_bots(user_id)
     max_slots = db_user.get('max_slots', 3)
     running_cnt = sum(1 for b in user_bots if b['status'] == 'RUNNING')
@@ -198,6 +294,11 @@ async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.callback_query.answer("🚫 Account Suspended", show_alert=True)
         else:
             await update.message.reply_text("🚫 Your account has been suspended.")
+        return
+
+    is_sub, unjoined = await check_user_subscription(context.bot, user_id)
+    if not is_sub:
+        await send_force_sub_prompt(update, context, unjoined)
         return
 
     text = (
@@ -231,6 +332,11 @@ async def show_templates_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text("🚫 Your account has been suspended.")
         return
 
+    is_sub, unjoined = await check_user_subscription(context.bot, user_id)
+    if not is_sub:
+        await send_force_sub_prompt(update, context, unjoined)
+        return
+
     maint = database.get_setting("maintenance_mode", "0") == "1"
     if maint and user_id != ADMIN_ID:
         msg = "⚠️ Platform is under maintenance. New bot deployments are paused."
@@ -262,6 +368,17 @@ async def user_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
     db_user = database.get_or_create_user(user_id)
     if db_user['is_banned']:
         await query.answer("🚫 Account Suspended", show_alert=True)
+        return
+
+    if data == "verify_fsub":
+        await verify_fsub_callback(update, context)
+        return
+
+    is_sub, unjoined = await check_user_subscription(context.bot, user_id)
+    if not is_sub:
+        if data_override is None:
+            await query.answer()
+        await send_force_sub_prompt(update, context, unjoined)
         return
 
     if data_override is None:
@@ -399,6 +516,12 @@ async def template_select_start(update: Update, context: ContextTypes.DEFAULT_TY
         await query.answer("🚫 Account Suspended", show_alert=True)
         return ConversationHandler.END
 
+    is_sub, unjoined = await check_user_subscription(context.bot, user_id)
+    if not is_sub:
+        await query.answer()
+        await send_force_sub_prompt(update, context, unjoined)
+        return ConversationHandler.END
+
     maint = database.get_setting("maintenance_mode", "0") == "1"
     if maint and user_id != ADMIN_ID:
         await query.answer("⚠️ Platform is under maintenance. New bot deployments are paused.", show_alert=True)
@@ -505,6 +628,13 @@ async def host_bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.callback_query.answer("🚫 Account Suspended", show_alert=True)
         else:
             await update.message.reply_text("🚫 Your account has been suspended by the administrator.")
+        return ConversationHandler.END
+
+    is_sub, unjoined = await check_user_subscription(context.bot, user_id)
+    if not is_sub:
+        if update.callback_query:
+            await update.callback_query.answer()
+        await send_force_sub_prompt(update, context, unjoined)
         return ConversationHandler.END
 
     maint = database.get_setting("maintenance_mode", "0") == "1"

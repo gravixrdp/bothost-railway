@@ -50,6 +50,30 @@ def init_db():
     )
     """)
     
+    # Required channels table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS required_channels (
+        channel_id TEXT PRIMARY KEY,
+        title TEXT,
+        invite_link TEXT,
+        created_at TEXT
+    )
+    """)
+    
+    # Seed default required channels if empty
+    cursor.execute("SELECT COUNT(*) as count FROM required_channels")
+    count_row = cursor.fetchone()
+    if count_row and count_row['count'] == 0:
+        now_ts = datetime.utcnow().isoformat()
+        cursor.execute("""
+        INSERT INTO required_channels (channel_id, title, invite_link, created_at)
+        VALUES (?, ?, ?, ?)
+        """, ('@GravixRDP', 'GravixRDP Official', 'https://t.me/GravixRDP', now_ts))
+        cursor.execute("""
+        INSERT INTO required_channels (channel_id, title, invite_link, created_at)
+        VALUES (?, ?, ?, ?)
+        """, ('@GravixRDP_Backup', 'Backup Community', 'https://t.me/+lD-MufapiQVhMGFl', now_ts))
+    
     # Set default maintenance mode if not exists
     cursor.execute("INSERT OR IGNORE INTO system_settings (key, value) VALUES ('maintenance_mode', '0')")
     
@@ -171,5 +195,32 @@ def set_setting(key: str, value: str):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)", (key, value))
+    conn.commit()
+    conn.close()
+
+# Required Channels Operations (Force-Sub)
+def get_required_channels():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM required_channels ORDER BY created_at ASC")
+    rows = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return rows
+
+def add_required_channel(channel_id: str, title: str, invite_link: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    created_at = datetime.utcnow().isoformat()
+    cursor.execute("""
+    INSERT OR REPLACE INTO required_channels (channel_id, title, invite_link, created_at)
+    VALUES (?, ?, ?, ?)
+    """, (channel_id, title, invite_link, created_at))
+    conn.commit()
+    conn.close()
+
+def delete_required_channel(channel_id: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM required_channels WHERE channel_id = ?", (channel_id,))
     conn.commit()
     conn.close()

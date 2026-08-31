@@ -1,17 +1,26 @@
 import os
+import re
 import shutil
 import psutil
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, ConversationHandler
+from telegram.ext import (
+    ContextTypes,
+    ConversationHandler,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    filters
+)
 from config import ADMIN_ID, DATA_DIR
 import database
 from bot_manager import bot_manager
 
 logger = logging.getLogger("GravixHost.Admin")
 
-# States for admin conversation handlers if needed
+# States for admin conversation handlers
 A_WAIT_BROADCAST, A_WAIT_SLOTS_UID, A_WAIT_SLOTS_NUM = range(10, 13)
+A_FSUB_ID, A_FSUB_TITLE, A_FSUB_LINK = range(20, 23)
 
 def is_admin(user_id: int) -> bool:
     return user_id == ADMIN_ID
@@ -46,6 +55,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("📢 Broadcast Message", callback_data="admin_broadcast_prompt")
         ],
         [
+            InlineKeyboardButton("📢 Force-Sub Channels", callback_data="admin_fsub_list_0"),
             InlineKeyboardButton(f"⚙️ Toggle Maintenance ({maint_status})", callback_data="admin_toggle_maint")
         ],
         [
@@ -290,6 +300,60 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         keyboard = [[InlineKeyboardButton("🔙 Back to Admin", callback_data="admin_panel")]]
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
+    elif data.startswith("admin_fsub_list_"):
+        page = int(data.split("_")[3])
+        channels = database.get_required_channels()
+        per_page = 5
+        total_pages = max(1, (len(channels) + per_page - 1) // per_page)
+        if page >= total_pages:
+            page = max(0, total_pages - 1)
+        curr_channels = channels[page * per_page : (page + 1) * per_page]
+
+        text = (
+            f"📢 **Force-Sub Required Channels** (Page {page + 1}/{total_pages})\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "Users must join all configured channels before using the bot.\n\n"
+        )
+        if not channels:
+            text += "ℹ️ *No required channels configured yet.*"
+        else:
+            for idx, ch in enumerate(curr_channels, start=page * per_page + 1):
+                text += (
+                    f"{idx}. **{ch['title']}**\n"
+                    f"   ├ 🆔 ID: `{ch['channel_id']}`\n"
+                    f"   └ 🔗 Link: {ch['invite_link']}\n\n"
+                )
+
+        keyboard = []
+        for ch in curr_channels:
+            btn_title = ch['title'][:20]
+            keyboard.append([
+                InlineKeyboardButton(f"🗑️ Remove {btn_title}", callback_data=f"admin_fsub_del_{ch['channel_id']}")
+            ])
+
+        nav_row = []
+        if page > 0:
+            nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"admin_fsub_list_{page - 1}"))
+        if page < total_pages - 1:
+            nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"admin_fsub_list_{page + 1}"))
+        if nav_row:
+            keyboard.append(nav_row)
+
+        keyboard.append([
+            InlineKeyboardButton("➕ Add Channel", callback_data="admin_fsub_add_start"),
+            InlineKeyboardButton("🔙 Back to Admin", callback_data="admin_panel")
+        ])
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+    elif data.startswith("admin_fsub_del_"):
+        target_cid = data.replace("admin_fsub_del_", "", 1)
+        database.delete_required_channel(target_cid)
+        await query.answer(f"Channel {target_cid} removed successfully!", show_alert=True)
+        await handle_admin_callback(update, context, data_override="admin_fsub_list_0")
+
+    elif data == "admin_fsub_cancel":
+        await handle_admin_callback(update, context, data_override="admin_fsub_list_0")
+
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_admin(user_id):
@@ -326,3 +390,171 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"❌ Failed (Blocked/Deleted): `{failed}`",
         parse_mode="Markdown"
     )
+
+# Force-Sub Add Channel Conversation Flow
+async def admin_fsub_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        if update.callback_query:
+            await update.callback_query.answer("⛔ Access Denied: You are not authorized.", show_alert=True)
+        else:
+            await update.message.reply_text("⛔ Access Denied: You are not authorized.")
+        return ConversationHandler.END
+
+    if update.callback_query:
+        await update.callback_query.answer()
+
+    context.user_data['active_flow'] = 'fsub_add'
+    text = (
+        "➕ **Add Required Channel (Step 1/3)**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        "Please enter the **Telegram Channel ID / Username**:\n\n"
+        "• Public Channel: `@ChannelUsername`\n"
+        "• Private Channel: `-1001234567890`\n\n"
+        "⚠️ *Make sure the bot is added as an Administrator in this channel.*\n\n"
+        "*(Send Channel ID or /cancel to abort)*"
+    )
+    keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data="admin_fsub_cancel")]]
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    else:
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    return A_FSUB_ID
+
+async def admin_fsub_get_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get('active_flow') != 'fsub_add':
+        await update.message.reply_text("⚠️ This session expired. Please use /admin to start again.")
+        return ConversationHandler.END
+
+    raw_id = update.message.text.strip()
+    is_valid = False
+    if raw_id.startswith("@") and len(raw_id) >= 4 and re.match(r"^@[a-zA-Z0-9_]+$", raw_id):
+        is_valid = True
+    elif re.match(r"^-100\d+$", raw_id):
+        is_valid = True
+
+    if not is_valid:
+        text = (
+            "⚠️ **Invalid Channel ID format.**\n\n"
+            "Please provide a valid public handle (e.g. `@GravixRDP`) or private channel ID (e.g. `-1001234567890`):\n\n"
+            "*(Send Channel ID or /cancel to abort)*"
+        )
+        keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data="admin_fsub_cancel")]]
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        return A_FSUB_ID
+
+    context.user_data['fsub_channel_id'] = raw_id
+    text = (
+        "➕ **Add Required Channel (Step 2/3)**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"Channel ID: `{raw_id}`\n\n"
+        "Please enter a display **Title** for this channel:\n"
+        "*(Example: `Gravix Official Channel`)*\n\n"
+        "*(Send Title or /cancel to abort)*"
+    )
+    keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data="admin_fsub_cancel")]]
+    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    return A_FSUB_TITLE
+
+async def admin_fsub_get_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get('active_flow') != 'fsub_add':
+        await update.message.reply_text("⚠️ This session expired. Please use /admin to start again.")
+        return ConversationHandler.END
+
+    title = update.message.text.strip()
+    if not title or len(title) < 2 or len(title) > 64:
+        text = (
+            "⚠️ **Invalid Title length.**\n\n"
+            "Please enter a title between 2 and 64 characters:\n\n"
+            "*(Send Title or /cancel to abort)*"
+        )
+        keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data="admin_fsub_cancel")]]
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        return A_FSUB_TITLE
+
+    context.user_data['fsub_title'] = title
+    cid = context.user_data.get('fsub_channel_id', '')
+    text = (
+        "➕ **Add Required Channel (Step 3/3)**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"Channel ID: `{cid}`\n"
+        f"Title: **{title}**\n\n"
+        "Please enter the **Invite Link** for this channel:\n"
+        "*(Example: `https://t.me/GravixRDP` or `https://t.me/+joinhash`)*\n\n"
+        "*(Send Link or /cancel to abort)*"
+    )
+    keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data="admin_fsub_cancel")]]
+    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    return A_FSUB_LINK
+
+async def admin_fsub_get_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get('active_flow') != 'fsub_add':
+        await update.message.reply_text("⚠️ This session expired. Please use /admin to start again.")
+        return ConversationHandler.END
+
+    link = update.message.text.strip()
+    if not re.match(r"^https?://(t\.me|telegram\.me)/.+$", link):
+        text = (
+            "⚠️ **Invalid Invite Link format.**\n\n"
+            "The link must start with `https://t.me/...`\n\n"
+            "*(Send Link or /cancel to abort)*"
+        )
+        keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data="admin_fsub_cancel")]]
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        return A_FSUB_LINK
+
+    cid = context.user_data.get('fsub_channel_id', '')
+    title = context.user_data.get('fsub_title', '')
+
+    database.add_required_channel(cid, title, link)
+    context.user_data.pop('fsub_channel_id', None)
+    context.user_data.pop('fsub_title', None)
+    context.user_data.pop('active_flow', None)
+
+    text = (
+        "✅ **Force-Sub Channel Added Successfully!**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📢 **Title:** {title}\n"
+        f"🆔 **Channel ID:** `{cid}`\n"
+        f"🔗 **Invite Link:** {link}\n\n"
+        "Users are now required to join this channel."
+    )
+    keyboard = [
+        [InlineKeyboardButton("📢 View All Channels", callback_data="admin_fsub_list_0")],
+        [InlineKeyboardButton("🔙 Back to Admin", callback_data="admin_panel")]
+    ]
+    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    return ConversationHandler.END
+
+async def admin_fsub_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.pop('fsub_channel_id', None)
+    context.user_data.pop('fsub_title', None)
+    context.user_data.pop('active_flow', None)
+
+    if update.callback_query:
+        await update.callback_query.answer("Add channel cancelled.")
+        await handle_admin_callback(update, context, data_override="admin_fsub_list_0")
+    else:
+        await update.message.reply_text("❌ Add channel cancelled.")
+        await admin_panel(update, context)
+    return ConversationHandler.END
+
+admin_fsub_conv = ConversationHandler(
+    entry_points=[
+        CallbackQueryHandler(admin_fsub_add_start, pattern="^admin_fsub_add_start$"),
+        CommandHandler("addchannel", admin_fsub_add_start)
+    ],
+    states={
+        A_FSUB_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_fsub_get_id)],
+        A_FSUB_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_fsub_get_title)],
+        A_FSUB_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_fsub_get_link)],
+    },
+    fallbacks=[
+        CommandHandler("cancel", admin_fsub_cancel),
+        MessageHandler(filters.Regex("^(❌ Cancel|/cancel|cancel)$"), admin_fsub_cancel),
+        CallbackQueryHandler(admin_fsub_cancel, pattern="^(admin_fsub_cancel|admin_panel)$")
+    ],
+    conversation_timeout=600,
+    per_message=False
+)
+

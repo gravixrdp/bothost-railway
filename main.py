@@ -18,7 +18,8 @@ from bot_manager import bot_manager
 from admin_handlers import (
     admin_panel,
     handle_admin_callback,
-    broadcast_command
+    broadcast_command,
+    admin_fsub_conv
 )
 from user_handlers import (
     start_command,
@@ -140,6 +141,7 @@ def main():
 
     application.add_handler(host_conv)
     application.add_handler(tpl_conv)
+    application.add_handler(admin_fsub_conv)
 
     # Persistent reply keyboard button handlers
     application.add_handler(MessageHandler(filters.Regex("^👑 Open Admin Panel$"), admin_panel))
