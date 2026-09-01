@@ -49,6 +49,7 @@ from admin_handlers import (
     admin_slots_conv
 )
 from user_handlers import (
+    send_clean_screen,
     start_command,
     show_my_bots,
     show_account_info,
@@ -312,7 +313,9 @@ async def general_message_router(update: Update, context: ContextTypes.DEFAULT_T
         "<b>💡 GRAVIX-HOST NAVIGATION</b>\n"
         "<blockquote>Please use the interactive buttons on your keyboard below or send <code>/start</code> to access the main dashboard.</blockquote>"
     )
-    await update.message.reply_text(
+    await send_clean_screen(
+        update,
+        context,
         nav_card,
         reply_markup=get_main_reply_keyboard(user_id),
         parse_mode="HTML"
