@@ -232,7 +232,7 @@ def get_admin_fsub_reply_keyboard(channels: list, page: int = 0) -> ReplyKeyboar
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_admin(user_id):
-        await _send_admin_msg(update, "⛔ <b>Access Denied:</b> You are not authorized to view the Admin Panel.", context=context)
+        await _send_admin_msg(update, "⛔ <b>Access Denied.</b>", context=context)
         return
 
     maint = database.get_setting("maintenance_mode", "0") == "1"
@@ -243,17 +243,16 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     running_bots = sum(1 for b in bots if b.get('status') == 'RUNNING')
 
     text = (
-        "<b>👑 GRAVIX-HOST CENTRAL ADMIN</b>\n"
-        "<i>Platform Management & Telemetry</i>\n"
+        "<b>👑 CENTRAL ADMIN</b>\n"
+        "<i>Platform Telemetry</i>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "<blockquote>"
-        f"👑 <b>Master Admin ID:</b> <code>{user_id}</code>\n"
-        f"⚙️ <b>Maintenance Mode:</b> <code>{maint_status}</code>\n"
-        f"👥 <b>Registered Users:</b> <code>{len(users)}</code>\n"
-        f"🤖 <b>Platform Bots:</b> <code>{running_bots} Active / {len(bots)} Total</code>"
+        f"👑 <b>Admin:</b> <code>{user_id}</code>\n"
+        f"⚙️ <b>Maintenance:</b> <code>{maint_status}</code>\n"
+        f"👥 <b>Users:</b> <code>{len(users)}</code>\n"
+        f"🤖 <b>Bots:</b> <code>{running_bots} Active / {len(bots)} Total</code>"
         "</blockquote>\n\n"
-        "⚡ <b>Control Panel Navigation</b>\n"
-        "Select an administrative module from the keyboard menu below to inspect infrastructure, govern users, or manage child bot processes."
+        "👇 <i>Select an option below:</i>"
     )
     reply_markup = get_admin_reply_keyboard(maint_status)
     await _send_admin_msg(update, text, reply_markup=reply_markup, context=context)
@@ -286,24 +285,15 @@ async def admin_stats_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     disk_total_gb = disk.total // (1024 * 1024 * 1024)
 
     text = (
-        "<b>📊 SYSTEM TELEMETRY &amp; METRICS</b>\n"
-        "<i>Real-time Platform Infrastructure Status</i>\n"
+        "<b>📊 SYSTEM STATS</b>\n"
+        "<i>Server & Infrastructure Metrics</i>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "<blockquote>"
-        "📊 <b>Platform Overview</b>\n"
-        f"👥 <b>𝗧𝗼𝘁𝗮𝗹 𝗨𝘀𝗲𝗿𝘀:</b> <code>{len(users)}</code>\n"
-        f"🤖 <b>Total Hosted Bots:</b> <code>{len(bots)}</code>\n"
-        f"   ├ 🟢 Active: <code>{running_bots}</code>\n"
-        f"   ├ ⚪ Stopped: <code>{stopped_bots}</code>\n"
-        f"   └ 🔴 Failed/Crashed: <code>{failed_bots}</code>\n\n"
-        "🖥️ <b>Host Server Resources</b>\n"
-        f"⚡ <b>𝗖𝗣𝗨 𝗟𝗼𝗮𝗱:</b> <code>{cpu_bar} {cpu_percent}%</code>\n"
-        f"💾 <b>𝗥𝗔𝗠 𝗨𝘀𝗮𝗴𝗲:</b> <code>{ram_bar} {mem.percent}%</code>\n"
-        f"   └ <code>{ram_used_mb} MB / {ram_total_mb} MB</code>\n"
-        f"💽 <b>𝗗𝗶𝘀𝗸 𝗔𝗹𝗹𝗼𝗰𝗮𝘁𝗶𝗼𝗻:</b> <code>{disk_bar} {disk.percent}%</code>\n"
-        f"   └ Free: <code>{disk_free_gb} GB</code> | Total: <code>{disk_total_gb} GB</code>"
-        "</blockquote>\n\n"
-        "💡 <i>Telemetry metrics sampled in real-time from Gravix Dedicated Cloud Infrastructure.</i>"
+        f"👥 <b>Users:</b> <code>{len(users)}</code> | 🤖 <b>Bots:</b> <code>{len(bots)}</code> (🟢 <code>{running_bots}</code> Active)\n\n"
+        f"⚡ <b>CPU:</b> <code>{cpu_bar} {cpu_percent}%</code>\n"
+        f"💾 <b>RAM:</b> <code>{ram_bar} {mem.percent}%</code> (<code>{ram_used_mb}MB / {ram_total_mb}MB</code>)\n"
+        f"💽 <b>Disk:</b> <code>{disk_bar} {disk.percent}%</code> (<code>{disk_free_gb}GB Free / {disk_total_gb}GB</code>)"
+        "</blockquote>"
     )
     reply_markup = ReplyKeyboardMarkup([[KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻 ⇋")]], resize_keyboard=True)
     await _send_admin_msg(update, text, reply_markup=reply_markup, context=context)
@@ -328,12 +318,11 @@ async def admin_users_list_handler(update: Update, context: ContextTypes.DEFAULT
 
     text = (
         f"<b>👥 USER DIRECTORY</b> (Page {curr_page + 1}/{total_pages})\n"
-        "<i>Platform User Database & Privilege Controls</i>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n\n"
     )
 
     if not users:
-        text += "<blockquote><i>No registered users found in the database.</i></blockquote>\n"
+        text += "<blockquote><i>No registered users found.</i></blockquote>\n"
     else:
         text += "<blockquote>"
         entries = []
@@ -341,14 +330,13 @@ async def admin_users_list_handler(update: Update, context: ContextTypes.DEFAULT
             banned_badge = " <code>[BANNED]</code>" if u.get('is_banned') else ""
             display_name = html.escape(get_user_display_name(u))
             slots = u.get('max_slots', 3)
-            joined = html.escape(str(u.get('joined_at', 'N/A'))[:10])
             entries.append(
                 f"<b>{idx}. {display_name}</b> (UID: <code>{u['user_id']}</code>){banned_badge}\n"
-                f"   └ Slots: <code>{slots}</code> | Joined: <code>{joined}</code>"
+                f"   └ Slots: <code>{slots}</code>"
             )
         text += "\n\n".join(entries) + "</blockquote>\n"
 
-    text += "\n💡 <i>Select a user button from the keyboard below to inspect details and manage privileges:</i>"
+    text += "\n👇 <i>Tap a user button below to manage:</i>"
     reply_markup = get_admin_users_reply_keyboard(users, curr_page)
     await _send_admin_msg(update, text, reply_markup=reply_markup, context=context)
 
@@ -384,20 +372,16 @@ async def admin_user_detail_handler(update: Update, context: ContextTypes.DEFAUL
     username_display = f"@{html.escape(raw_uname)}" if raw_uname else '<i>None</i>'
 
     text = (
-        "<b>👤 USER PROFILE INSPECTOR</b>\n"
-        f"<i>Account Details & Quota for UID {target_user['user_id']}</i>\n"
+        f"<b>👤 USER DETAIL</b>\n"
+        f"<i>UID: <code>{target_user['user_id']}</code></i>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "<blockquote>"
-        f"🆔 <b>𝗨𝘀𝗲𝗿 𝗜𝗗:</b> <code>{target_user['user_id']}</code>\n"
-        f"👤 <b>Name:</b> {name_display}\n"
-        f"🏷️ <b>𝗨𝘀𝗲𝗿𝗻𝗮𝗺𝗲:</b> {username_display}\n"
-        f"🛡️ <b>𝗔𝗰𝗰𝗼𝘂𝗻𝘁 𝗦𝘁𝗮𝘁𝘂𝘀:</b> {banned_str}\n"
-        f"📦 <b>Slot Allocation:</b> <code>{target_user.get('max_slots', 3)}</code> bots\n"
-        f"🤖 <b>Hosted Instances:</b> <code>{len(user_bots)}</code> (<code>{running_count}</code> Active)\n"
-        f"📅 <b>Registration Date:</b> <code>{html.escape(str(target_user.get('joined_at', 'N/A')))}</code>"
+        f"👤 <b>Name:</b> {name_display} ({username_display})\n"
+        f"🛡️ <b>Status:</b> {banned_str}\n"
+        f"📦 <b>Slots:</b> <code>{target_user.get('max_slots', 3)}</code>\n"
+        f"🤖 <b>Bots:</b> <code>{len(user_bots)}</code> (<code>{running_count}</code> Active)"
         "</blockquote>\n\n"
-        "⚡ <b>Account Actions</b>\n"
-        "Use the keyboard options below to toggle account access or grant additional slot capacity."
+        "👇 <i>Choose action below:</i>"
     )
     reply_markup = get_admin_user_detail_keyboard(user_id, is_banned)
     await _send_admin_msg(update, text, reply_markup=reply_markup, context=context)
@@ -437,13 +421,13 @@ async def admin_user_action_handler(update: Update, context: ContextTypes.DEFAUL
                 await bot_manager.stop_bot(b['bot_id'])
             await _send_admin_msg(
                 update,
-                f"🚫 <b>USER BANNED</b>\nUser <code>{target_uid}</code> has been banned. All active child subprocesses terminated.",
+                f"🚫 <b>USER BANNED</b>\nUser <code>{target_uid}</code> has been banned. Subprocesses stopped.",
                 context=context
             )
         else:
             await _send_admin_msg(
                 update,
-                f"🔓 <b>USER UNBANNED</b>\nUser <code>{target_uid}</code> has been restored to active status.",
+                f"🔓 <b>USER UNBANNED</b>\nUser <code>{target_uid}</code> has been unbanned.",
                 context=context
             )
 
@@ -451,7 +435,7 @@ async def admin_user_action_handler(update: Update, context: ContextTypes.DEFAUL
         new_slots = database.adjust_user_slots(target_uid, 1)
         await _send_admin_msg(
             update,
-            f"➕ <b>SLOTS INCREASED</b>\nHosting capacity increased to <code>{new_slots}</code> bots for User <code>{target_uid}</code>.",
+            f"➕ <b>SLOTS INCREASED</b>\nSlots: <code>{new_slots}</code> for User <code>{target_uid}</code>.",
             context=context
         )
 
@@ -459,7 +443,7 @@ async def admin_user_action_handler(update: Update, context: ContextTypes.DEFAUL
         new_slots = database.adjust_user_slots(target_uid, -1)
         await _send_admin_msg(
             update,
-            f"➖ <b>SLOTS DECREASED</b>\nHosting capacity decreased to <code>{new_slots}</code> bots for User <code>{target_uid}</code>.",
+            f"➖ <b>SLOTS DECREASED</b>\nSlots: <code>{new_slots}</code> for User <code>{target_uid}</code>.",
             context=context
         )
 
@@ -478,13 +462,13 @@ async def admin_bots_list_handler(update: Update, context: ContextTypes.DEFAULT_
     context.user_data['admin_bots_page'] = curr_page
     curr_bots = all_bots[curr_page * per_page : (curr_page + 1) * per_page]
 
-    header = make_header_card("ALL PLATFORM BOTS", f"Page {curr_page + 1} of {total_pages}")
     text = (
-        f"{header}\n\n"
+        f"<b>🤖 HOSTED BOTS</b> (Page {curr_page + 1}/{total_pages})\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
     )
 
     if not all_bots:
-        text += "<blockquote><i>No hosted bot instances found on the platform.</i></blockquote>\n"
+        text += "<blockquote><i>No hosted bot instances found.</i></blockquote>\n"
     else:
         text += "<blockquote>"
         entries = []
@@ -496,11 +480,11 @@ async def admin_bots_list_handler(update: Update, context: ContextTypes.DEFAULT_
             u_id = b.get('user_id')
             entries.append(
                 f"{idx}. {status_emoji} <b>{b_name}</b> [<code>#{b_id}</code>]\n"
-                f"   └ 👤 <b>𝗢𝘄𝗻𝗲𝗿:</b> <code>{u_id}</code> | ⚡ <b>𝗦𝘁𝗮𝘁𝘂𝘀:</b> <code>{st}</code>"
+                f"   └ 👤 Owner: <code>{u_id}</code> | ⚡ Status: <code>{st}</code>"
             )
         text += "\n\n".join(entries) + "</blockquote>\n"
 
-    text += "\n💡 <i>Select a bot button below to inspect configuration, read execution logs, or manage lifecycle states:</i>"
+    text += "\n👇 <i>Tap a bot button below to manage:</i>"
     reply_markup = get_admin_bots_reply_keyboard(all_bots, curr_page)
     await _send_admin_msg(update, text, reply_markup=reply_markup, context=context)
 
@@ -530,31 +514,24 @@ async def admin_bot_detail_handler(update: Update, context: ContextTypes.DEFAULT
     status_emoji = "🟢" if status == "RUNNING" else ("🔴" if status in ["FAILED", "CRASHED"] else "⚪")
     token = bot_data.get('bot_token', '')
     masked_token = f"{token[:10]}...{token[-5:]}" if len(token) > 15 else "******"
-    script_path = bot_data.get('script_path') or f"{DATA_DIR}/bots/{bot_data['user_id']}_{bot_id}/main.py"
-    created_at = bot_data.get('created_at', 'N/A')
-    auto_restart = "🟢 Enabled" if bot_data.get('auto_restart', 1) else "🔴 Disabled"
+    auto_restart = "🟢 On" if bot_data.get('auto_restart', 1) else "🔴 Off"
 
     metrics = bot_manager.get_bot_process_metrics(bot_id)
     cpu_percent = metrics.get('cpu_percent', 0.0)
     ram_mb = metrics.get('ram_mb', 0.0)
 
-    header = make_header_card("𝗕𝗢𝗧 𝗜𝗡𝗦𝗧𝗔𝗡𝗖𝗘 𝗜𝗡𝗦𝗣𝗘𝗖𝗧𝗢𝗥", f"Instance Diagnostics & Process Control for #{html.escape(bot_id)}")
     text = (
-        f"{header}\n\n"
+        f"<b>🤖 BOT DETAIL [<code>#{html.escape(bot_id)}</code>]</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "<blockquote>"
-        f"🆔 <b>𝗕𝗼𝘁 𝗜𝗗:</b> <code>#{html.escape(bot_id)}</code>\n"
-        f"🤖 <b>𝗕𝗼𝘁 𝗡𝗮𝗺𝗲:</b> <b>{html.escape(bot_data.get('bot_name', 'Unnamed Bot'))}</b>\n"
-        f"👤 <b>𝗢𝘄𝗻𝗲𝗿:</b> <code>{bot_data['user_id']}</code>\n"
-        f"⚡ <b>𝗦𝘁𝗮𝘁𝘂𝘀:</b> {status_emoji} <code>{status}</code>\n"
-        f"⚡ <b>𝗖𝗣𝗨 𝗟𝗼𝗮𝗱:</b> <code>{cpu_percent}%</code>\n"
-        f"💾 <b>𝗥𝗔𝗠 𝗨𝘀𝗮𝗴𝗲:</b> <code>{ram_mb} MB</code>\n"
-        f"🔄 <b>𝗔𝘂𝘁𝗼-𝗥𝗲𝘀𝘁𝗮𝗿𝘁:</b> <code>{auto_restart}</code>\n"
-        f"🔑 <b>API Token:</b> <code>{html.escape(masked_token)}</code>\n"
-        f"📁 <b>Script Path:</b> <code>{html.escape(script_path)}</code>\n"
-        f"🕒 <b>Provisioned:</b> <code>{html.escape(str(created_at))}</code>"
+        f"🤖 <b>Name:</b> <b>{html.escape(bot_data.get('bot_name', 'Unnamed Bot'))}</b>\n"
+        f"👤 <b>Owner:</b> <code>{bot_data['user_id']}</code>\n"
+        f"⚡ <b>Status:</b> {status_emoji} <code>{status}</code>\n"
+        f"⚡ <b>RAM:</b> <code>{ram_mb} MB</code> | <b>CPU:</b> <code>{cpu_percent}%</code>\n"
+        f"🔄 <b>Auto-Restart:</b> <code>{auto_restart}</code>\n"
+        f"🔑 <b>Token:</b> <code>{html.escape(masked_token)}</code>"
         "</blockquote>\n\n"
-        "⚡ <b>Process Control</b>\n"
-        "Select a command below to start, stop, restart, stream execution logs, or force delete."
+        "👇 <i>Select process action below:</i>"
     )
     reply_markup = get_admin_bot_detail_keyboard(bot_id, status)
     await _send_admin_msg(update, text, reply_markup=reply_markup, context=context)
@@ -706,29 +683,25 @@ async def admin_fsub_list_handler(update: Update, context: ContextTypes.DEFAULT_
 
     text = (
         f"<b>📢 FORCE-SUB CHANNELS</b> (Page {curr_page + 1}/{total_pages})\n"
-        "<i>Mandatory Subscription Membership Gateways</i>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n\n"
     )
 
     if not channels:
-        text += "<blockquote><i>No mandatory force-sub channels configured yet.</i></blockquote>\n"
+        text += "<blockquote><i>No force-sub channels configured yet.</i></blockquote>\n"
     else:
         text += "<blockquote>"
         entries = []
         for idx, ch in enumerate(curr_channels, start=curr_page * per_page + 1):
             ch_title = html.escape(ch.get('title', 'Channel'))
             ch_id = html.escape(str(ch.get('channel_id', '')))
-            ch_link = html.escape(ch.get('invite_link', ''))
             is_adm, badge, _ = await check_channel_bot_admin_status(context.bot, ch.get('channel_id', ''))
             entries.append(
-                f"{idx}. <b>{ch_title}</b>\n"
-                f"   ├ 🆔 <b>ID:</b> <code>{ch_id}</code>\n"
-                f"   ├ ⚡ <b>Bot Admin:</b> {badge}\n"
-                f"   └ 🔗 <b>Link:</b> <a href=\"{ch_link}\">{ch_link}</a>"
+                f"{idx}. <b>{ch_title}</b> (<code>{ch_id}</code>)\n"
+                f"   └ ⚡ Admin: {badge}"
             )
         text += "\n\n".join(entries) + "</blockquote>\n"
 
-    text += "\n💡 <i>Tap <b>⇋ 𝗧𝗲𝘀𝘁 𝗕𝗼𝘁 𝗔𝗱𝗺𝗶𝗻 𝗦𝘁𝗮𝘁𝘂𝘀 ⇋</b> to probe all channels or tap a channel button to remove:</i>"
+    text += "\n👇 <i>Tap below to test or remove channels:</i>"
     reply_markup = get_admin_fsub_reply_keyboard(channels, curr_page)
     await _send_admin_msg(update, text, reply_markup=reply_markup, context=context)
 
