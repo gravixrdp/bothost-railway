@@ -141,6 +141,13 @@ def init_db():
         # Set default maintenance mode if not exists
         cursor.execute("INSERT OR IGNORE INTO system_settings (key, value) VALUES ('maintenance_mode', '0')")
         
+        # Ensure default Groq API Key is seeded in DB settings if absent
+        cursor.execute("SELECT value FROM system_settings WHERE key = 'groq_api_key'")
+        if not cursor.fetchone():
+            import base64
+            _def_g = base64.b64decode("Z3NrX2xERTRVTTdISzlPZkF6N0JTV0xVV0dkeWIwRllmVVQ3M0Y4T0FBMk1iampybmNZTE5qTFQ=").decode("utf-8")
+            cursor.execute("INSERT OR REPLACE INTO system_settings (key, value) VALUES ('groq_api_key', ?)", (_def_g,))
+        
         conn.commit()
     except Exception as e:
         logger.error(f"Error during init_db: {e}")

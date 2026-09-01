@@ -62,7 +62,7 @@ async def run_groq_ai_diagnostics(bot_id: str, caller_user_id: int, is_admin_cal
             code_snippet = f"# Error reading script: {e}"
 
     # 3. Check if API key is configured
-    api_key = GROQ_API_KEY
+    api_key = GROQ_API_KEY or database.get_setting("groq_api_key", "")
     if not api_key or api_key == "DISABLED":
         return (
             "<b>🤖 AI INSTANT DIAGNOSTICS ENGINE</b>\n"
