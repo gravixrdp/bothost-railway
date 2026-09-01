@@ -643,14 +643,14 @@ async def admin_bot_action_handler(update: Update, context: ContextTypes.DEFAULT
         await admin_bot_get_code_handler(update, context, bot_id)
 
     elif action == "ai_diagnose":
-        from ai_diagnostics import run_groq_ai_diagnostics
+        from ai_diagnostics import run_ai_diagnostics
         bot_data = database.get_bot(bot_id)
         await _send_admin_msg(
             update,
-            f"⏳ <b>AI analyzing instance <code>#{bot_id}</code> crash logs with Groq engine...</b>",
+            f"⏳ <b>Gravix AI analyzing instance <code>#{bot_id}</code> status, logs & code...</b>",
             context=context
         )
-        report = await run_groq_ai_diagnostics(bot_id, admin_id, is_admin_caller=True)
+        report = await run_ai_diagnostics(bot_id, admin_id, is_admin_caller=True)
         status = bot_data.get('status', 'STOPPED') if bot_data else 'STOPPED'
         reply_markup = get_admin_bot_detail_keyboard(bot_id, status)
         await _send_admin_msg(

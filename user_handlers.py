@@ -731,13 +731,13 @@ async def handle_bot_action(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         )
 
     elif action == "ai_diagnose":
-        from ai_diagnostics import run_groq_ai_diagnostics
+        from ai_diagnostics import run_ai_diagnostics
         await send_clean_screen(
             update,
             context,
-            f"⏳ <b>AI analyzing instance <code>#{bot_id}</code> crash logs with Groq engine...</b>"
+            f"⏳ <b>Gravix AI analyzing instance <code>#{bot_id}</code> status, logs & code...</b>"
         )
-        report = await run_groq_ai_diagnostics(bot_id, user_id, is_admin_caller=False)
+        report = await run_ai_diagnostics(bot_id, user_id, is_admin_caller=False)
         status = bot_data['status']
         await send_clean_screen(
             update,

@@ -11,28 +11,42 @@ from bot_manager import bot_manager
 
 logger = logging.getLogger("GravixHost.AIDiagnostics")
 
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+AI_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 SYSTEM_PROMPT = (
-    "You are Gravix-Host AI Diagnostics Engineer, an elite Python Telegram bot debugger and cloud architect.\n"
-    "Your goal is to inspect Python Telegram bot crash logs, tracebacks, and source code, and tell the user and administrator EXACTLY what went wrong and how to fix it.\n\n"
-    "Language & Tone Rules:\n"
-    "1. Always respond in fluent, professional, and clear ENGLISH only.\n"
-    "2. Format your response strictly using Telegram-supported HTML tags (<b>, <i>, <code>, <blockquote>, <pre>).\n"
-    "3. Do NOT output markdown symbols (like **, ```, or # headings).\n"
-    "4. Do NOT output full HTML document tags (<html>, <head>, <body>, <style>).\n\n"
-    "Response Structure:\n"
+    "You are Gravix AI Diagnostics Engine, an elite Python Telegram bot cloud architect and code auditor.\n"
+    "Analyze the provided bot instance status, recent console logs, error tracebacks, and source code.\n\n"
+    "CORE OPERATIONAL RULES:\n"
+    "1. ACCURATE STATUS DETECTION:\n"
+    "   - If Instance Status is RUNNING and logs show normal activity (e.g. polling updates, HTTP 200 OK, startup messages without unhandled exceptions), declare the bot Healthy & Active. Do NOT fabricate problems or crashes.\n"
+    "   - If the bot is STOPPED, CRASHED, or has error tracebacks/exceptions, perform a root-cause crash analysis.\n"
+    "2. ADVISORY SUGGESTIONS ONLY:\n"
+    "   - Your code blocks are suggestions for the user or administrator to review. You NEVER modify user files directly without explicit user action.\n"
+    "3. BRANDING & PRIVACY:\n"
+    "   - Never mention third-party AI providers or models (Groq, OpenAI, Meta, Qwen, Llama). Identify strictly as Gravix AI.\n"
+    "4. LANGUAGE & FORMAT:\n"
+    "   - Always respond in fluent, professional, clear ENGLISH only.\n"
+    "   - Format strictly using Telegram-supported HTML tags (<b>, <i>, <code>, <blockquote>, <pre>).\n"
+    "   - Do NOT output full HTML document tags (<html>, <head>, <body>, <style>).\n\n"
+    "OUTPUT FORMAT FOR RUNNING / HEALTHY BOT:\n"
+    "🟢 <b>Status Overview:</b>\n"
+    "<blockquote>Summary confirming active operation and healthy polling.</blockquote>\n\n"
+    "📊 <b>Runtime Health & Performance:</b>\n"
+    "<blockquote>Key insights from recent logs (e.g. active event loop, responsive updates).</blockquote>\n\n"
+    "💡 <b>Optimization Recommendations (Optional):</b>\n"
+    "<blockquote>Practical advice on security, scalability, or error handling.</blockquote>\n\n"
+    "OUTPUT FORMAT FOR CRASHED / FAILED BOT:\n"
     "🔍 <b>Root Cause:</b>\n"
-    "<blockquote>Clear and concise explanation in English detailing what failed and identifying the specific line or dependency.</blockquote>\n\n"
+    "<blockquote>Clear explanation of what failed, why, and the specific line number or missing dependency.</blockquote>\n\n"
     "🛠️ <b>How to Fix:</b>\n"
-    "<blockquote>Step-by-step resolution instructions.</blockquote>\n\n"
-    "💻 <b>Fixed Code Solution:</b>\n"
-    "<pre><code># Corrected python code or configuration fix</code></pre>"
+    "<blockquote>Step-by-step resolution guide.</blockquote>\n\n"
+    "💻 <b>Suggested Code Fix:</b>\n"
+    "<pre><code># Corrected python code or configuration fix for user review</code></pre>"
 )
 
-async def run_groq_ai_diagnostics(bot_id: str, caller_user_id: int, is_admin_caller: bool = False) -> str:
+async def run_ai_diagnostics(bot_id: str, caller_user_id: int, is_admin_caller: bool = False) -> str:
     """
-    Analyzes bot error logs, tracebacks, and source code using Groq AI.
+    Analyzes bot error logs, tracebacks, and source code using Gravix AI Neural Engine.
     Returns a structured Telegram HTML diagnostics report.
     """
     bot_id = str(bot_id).strip()
@@ -65,13 +79,13 @@ async def run_groq_ai_diagnostics(bot_id: str, caller_user_id: int, is_admin_cal
     api_key = GROQ_API_KEY or database.get_setting("groq_api_key", "")
     if not api_key or api_key == "DISABLED":
         return (
-            "<b>🤖 AI INSTANT DIAGNOSTICS ENGINE</b>\n"
+            "<b>🤖 GRAVIX AI DIAGNOSTICS ENGINE</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            "<blockquote>⚠️ <b>Groq AI API Key Not Configured.</b>\n"
-            "Please configure <code>GROQ_API_KEY</code> in environment variables to enable instant AI error diagnostics.</blockquote>"
+            "<blockquote>⚠️ <b>AI Diagnostic Engine Notice:</b>\n"
+            "Gravix AI service is temporarily unavailable. Please try again later.</blockquote>"
         )
 
-    # 4. Prepare User Prompt
+    # 4. Prepare Context
     user_content = (
         f"Bot Name: {bot_name}\n"
         f"Bot ID: {bot_id}\n"
@@ -86,11 +100,11 @@ async def run_groq_ai_diagnostics(bot_id: str, caller_user_id: int, is_admin_cal
             f"{code_snippet}\n"
         )
 
-    # 5. Call Groq API
+    # 5. Call AI Backend
     try:
         async with httpx.AsyncClient(timeout=25.0) as client:
             response = await client.post(
-                GROQ_API_URL,
+                AI_API_URL,
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json"
@@ -107,24 +121,25 @@ async def run_groq_ai_diagnostics(bot_id: str, caller_user_id: int, is_admin_cal
             )
 
             if response.status_code != 200:
-                logger.error(f"Groq API returned error {response.status_code}: {response.text}")
+                logger.error(f"AI engine returned error {response.status_code}: {response.text}")
                 return (
-                    f"<b>🤖 AI DIAGNOSTICS [<code>#{html.escape(bot_id)}</code>]</b>\n"
+                    f"<b>🤖 GRAVIX AI DIAGNOSTICS [<code>#{html.escape(bot_id)}</code>]</b>\n"
                     f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                    f"<blockquote>⚠️ <b>AI Diagnostics Notice:</b>\n"
-                    f"Groq API returned status code <code>{response.status_code}</code>.</blockquote>"
+                    f"<blockquote>⚠️ <b>Diagnostic Engine Notice:</b>\n"
+                    f"AI engine service returned status <code>{response.status_code}</code>. Please check logs manually.</blockquote>"
                 )
 
             data = response.json()
             ai_reply = data.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
             ai_reply = ai_reply.replace("```python", "").replace("```html", "").replace("```", "")
 
+            badge = "🟢 ACTIVE & HEALTHY" if status == "RUNNING" else "⚠️ DIAGNOSTIC REPORT"
             header = (
-                f"<b>🤖 AI CRASH DIAGNOSTICS & FIX</b>\n"
-                f"<i>Powered by Groq Ultra-Fast AI Engine</i>\n"
+                f"<b>🤖 GRAVIX AI BOT DIAGNOSTICS</b>\n"
+                f"<i>Powered by Gravix Neural Diagnostics Core</i>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"🤖 <b>Bot:</b> <b>{html.escape(bot_name)}</b> (<code>#{html.escape(bot_id)}</code>)\n"
-                f"⚡ <b>Status:</b> <code>{status}</code>\n"
+                f"⚡ <b>Status:</b> <code>{status}</code> ({badge})\n"
                 f"👤 <b>Owner:</b> <code>{owner_id}</code>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
             )
@@ -132,14 +147,18 @@ async def run_groq_ai_diagnostics(bot_id: str, caller_user_id: int, is_admin_cal
 
     except httpx.TimeoutException:
         return (
-            f"<b>🤖 AI DIAGNOSTICS [<code>#{html.escape(bot_id)}</code>]</b>\n"
+            f"<b>🤖 GRAVIX AI DIAGNOSTICS [<code>#{html.escape(bot_id)}</code>]</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            "<blockquote>⏱️ <b>Request Timeout:</b> The AI diagnostic engine took too long to respond.</blockquote>"
+            "<blockquote>⏱️ <b>Request Timeout:</b> Gravix AI engine took too long to respond. Please try again.</blockquote>"
         )
     except Exception as e:
         logger.error(f"Failed to execute AI diagnostics: {e}")
         return (
-            f"<b>🤖 AI DIAGNOSTICS [<code>#{html.escape(bot_id)}</code>]</b>\n"
+            f"<b>🤖 GRAVIX AI DIAGNOSTICS [<code>#{html.escape(bot_id)}</code>]</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"<blockquote>❌ <b>Diagnostic Error:</b> <code>{html.escape(str(e))}</code></blockquote>"
         )
+
+# Backward-compatible alias
+run_groq_ai_diagnostics = run_ai_diagnostics
+
