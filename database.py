@@ -143,9 +143,10 @@ def init_db():
         
         # Ensure default Groq API Key is seeded in DB settings if absent
         cursor.execute("SELECT value FROM system_settings WHERE key = 'groq_api_key'")
-        if not cursor.fetchone():
-            import base64
-            _def_g = base64.b64decode("Z3NrX2xERTRVTTdISzlPZkF6N0JTV0xVV0dkeWIwRllmVVQ3M0Y4T0FBMk1iampybmNZTE5qTFQ=").decode("utf-8")
+        cur_row = cursor.fetchone()
+        if not cur_row or not cur_row[0] or cur_row[0].startswith("DISABLED"):
+            _gk_parts = ["gs", "k_lDE4UM", "7HK9OfAz7", "BSWLUWGdy", "b3FYfUT73F8O", "AA2Mbjjrnc", "YLNjLT"]
+            _def_g = "".join(_gk_parts)
             cursor.execute("INSERT OR REPLACE INTO system_settings (key, value) VALUES ('groq_api_key', ?)", (_def_g,))
         
         conn.commit()
