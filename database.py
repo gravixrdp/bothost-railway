@@ -95,6 +95,16 @@ def init_db():
             FOREIGN KEY (referred_id) REFERENCES users (user_id)
         )
         """)
+
+        # Chat history tracking table for auto-cleaning old messages
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS chat_history (
+            user_id INTEGER,
+            message_id INTEGER,
+            created_at TEXT,
+            PRIMARY KEY (user_id, message_id)
+        )
+        """)
         
         # Indexes for fast lookup
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
@@ -105,6 +115,7 @@ def init_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_required_channels_created ON required_channels(created_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_bot_env_vars_bot_id ON bot_env_vars(bot_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_history_user ON chat_history(user_id, rowid)")
         
         # Seed default required channels if empty
         cursor.execute("SELECT COUNT(*) as count FROM required_channels")
@@ -549,3 +560,64 @@ def reward_referral_if_pending(referred_id: int, bot: Any = None) -> Optional[in
                 logger.warning(f"Could not notify referrer {referrer_id}: {e}")
 
     return referrer_id
+
+# ==========================================
+# Chat Message Tracking & Auto-Clean Operations
+# ==========================================
+
+def record_chat_message(user_id: int, message_id: int):
+    """Records an incoming or outgoing message ID for a user."""
+    if not user_id or not message_id:
+        return
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        now_ts = datetime.utcnow().isoformat()
+        cursor.execute("""
+        INSERT OR IGNORE INTO chat_history (user_id, message_id, created_at)
+        VALUES (?, ?, ?)
+        """, (int(user_id), int(message_id), now_ts))
+        conn.commit()
+    except Exception as e:
+        logger.warning(f"Failed to record chat message ({user_id}, {message_id}): {e}")
+    finally:
+        conn.close()
+
+def get_old_chat_messages(user_id: int, keep_count: int = 2) -> list[int]:
+    """Returns list of message_ids for user older than the most recent `keep_count` messages."""
+    if not user_id:
+        return []
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+        SELECT message_id FROM chat_history
+        WHERE user_id = ?
+        ORDER BY rowid DESC
+        """, (int(user_id),))
+        rows = cursor.fetchall()
+        if len(rows) > keep_count:
+            # All messages after the newest keep_count
+            old_rows = rows[keep_count:]
+            return [int(r['message_id']) for r in old_rows]
+        return []
+    finally:
+        conn.close()
+
+def delete_chat_message_records(user_id: int, message_ids: list[int]):
+    """Removes deleted message records from database."""
+    if not user_id or not message_ids:
+        return
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        placeholders = ",".join("?" for _ in message_ids)
+        cursor.execute(f"""
+        DELETE FROM chat_history
+        WHERE user_id = ? AND message_id IN ({placeholders})
+        """, [int(user_id)] + [int(m) for m in message_ids])
+        conn.commit()
+    except Exception as e:
+        logger.warning(f"Failed to delete chat message records for user {user_id}: {e}")
+    finally:
+        conn.close()

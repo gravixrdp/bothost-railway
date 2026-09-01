@@ -12,6 +12,7 @@ from telegram.ext import (
     CallbackQueryHandler,
     MessageHandler,
     ConversationHandler,
+    TypeHandler,
     filters,
     ContextTypes
 )
@@ -135,6 +136,30 @@ class NormalizedRegex(filters.MessageFilter):
                 if candidate and (match := self.pattern.search(candidate)):
                     return {"matches": [match]}
         return {}
+
+
+async def purge_old_messages(bot, user_id: int, keep_count: int = 2):
+    """Deletes all messages from chat history except the last `keep_count` messages."""
+    if not user_id:
+        return
+    old_msg_ids = database.get_old_chat_messages(user_id, keep_count=keep_count)
+    if not old_msg_ids:
+        return
+    for mid in old_msg_ids:
+        try:
+            await bot.delete_message(chat_id=user_id, message_id=mid)
+        except Exception:
+            pass
+    database.delete_chat_message_records(user_id, old_msg_ids)
+
+
+async def pre_update_tracker(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Tracks incoming user message and deletes old messages before handler dispatch."""
+    if update.effective_user and update.effective_message:
+        uid = update.effective_user.id
+        mid = update.effective_message.message_id
+        database.record_chat_message(uid, mid)
+        await purge_old_messages(context.bot, uid, keep_count=2)
 
 
 async def post_init(application):
@@ -320,6 +345,11 @@ def main():
         .post_init(post_init)
         .build()
     )
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Pre-Update Global Hook (Group -1: Auto-Delete Old Messages)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    application.add_handler(TypeHandler(Update, pre_update_tracker), group=-1)
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # Conversation Handlers

@@ -43,16 +43,17 @@ async def _send_admin_msg(update: Update, text: str, reply_markup=None, context:
     user_id = update.effective_user.id if update.effective_user else None
     incoming_msg = update.effective_message
 
-    if context and user_id and incoming_msg:
-        history = context.user_data.setdefault("chat_msg_history", [])
-        if incoming_msg.message_id not in history:
-            history.append(incoming_msg.message_id)
-        while len(history) > 2:
-            old_id = history.pop(0)
-            try:
-                await context.bot.delete_message(chat_id=user_id, message_id=old_id)
-            except Exception:
-                pass
+    if user_id and incoming_msg:
+        database.record_chat_message(user_id, incoming_msg.message_id)
+        if context:
+            old_msg_ids = database.get_old_chat_messages(user_id, keep_count=2)
+            for mid in old_msg_ids:
+                try:
+                    await context.bot.delete_message(chat_id=user_id, message_id=mid)
+                except Exception:
+                    pass
+            if old_msg_ids:
+                database.delete_chat_message_records(user_id, old_msg_ids)
 
     sent = None
     if update.message:
@@ -65,16 +66,17 @@ async def _send_admin_msg(update: Update, text: str, reply_markup=None, context:
         if update.callback_query.message:
             sent = await update.callback_query.message.reply_text(text, reply_markup=reply_markup, parse_mode="HTML")
 
-    if context and user_id and sent:
-        history = context.user_data.setdefault("chat_msg_history", [])
-        if sent.message_id not in history:
-            history.append(sent.message_id)
-        while len(history) > 2:
-            old_id = history.pop(0)
-            try:
-                await context.bot.delete_message(chat_id=user_id, message_id=old_id)
-            except Exception:
-                pass
+    if user_id and sent:
+        database.record_chat_message(user_id, sent.message_id)
+        if context:
+            old_msg_ids = database.get_old_chat_messages(user_id, keep_count=2)
+            for mid in old_msg_ids:
+                try:
+                    await context.bot.delete_message(chat_id=user_id, message_id=mid)
+                except Exception:
+                    pass
+            if old_msg_ids:
+                database.delete_chat_message_records(user_id, old_msg_ids)
     return sent
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

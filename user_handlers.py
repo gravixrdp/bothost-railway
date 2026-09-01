@@ -58,20 +58,22 @@ def make_header_card(title: str = "GRAVIX-HOST PRO", subtitle: str = "100% Free 
         "━━━━━━━━━━━━━━━━━━━━━━"
     )
 
-async def track_and_clean_chat(bot, chat_id: int, context, new_msg_id: int = None, keep_count: int = 2):
+async def track_and_clean_chat(bot, chat_id: int, context=None, new_msg_id: int = None, keep_count: int = 2):
     """Keeps only the most recent `keep_count` messages in chat, auto-deleting older messages."""
-    if not context or not hasattr(context, "user_data") or not chat_id:
+    if not chat_id:
         return
-    history = context.user_data.setdefault("chat_msg_history", [])
-    if new_msg_id and new_msg_id not in history:
-        history.append(new_msg_id)
+    if new_msg_id:
+        database.record_chat_message(chat_id, new_msg_id)
 
-    while len(history) > keep_count:
-        old_id = history.pop(0)
+    old_msg_ids = database.get_old_chat_messages(chat_id, keep_count=keep_count)
+    if not old_msg_ids:
+        return
+    for mid in old_msg_ids:
         try:
-            await bot.delete_message(chat_id=chat_id, message_id=old_id)
+            await bot.delete_message(chat_id=chat_id, message_id=mid)
         except Exception:
             pass
+    database.delete_chat_message_records(chat_id, old_msg_ids)
 
 async def _send_user_screen(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, reply_markup=None, photo_path: str = None, parse_mode: str = "HTML"):
     """Helper to send screens with automatic message history tracking (keeping only last 2 messages)."""
