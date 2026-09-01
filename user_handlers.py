@@ -89,9 +89,6 @@ async def verify_telegram_token(token: str) -> tuple[bool, str, str]:
         return True, "Bot", ""
 
 async def check_user_subscription(bot, user_id: int) -> tuple[bool, list]:
-    if user_id == ADMIN_ID:
-        return True, []
-
     channels = []
     if hasattr(database, "get_required_channels"):
         try:
@@ -108,22 +105,35 @@ async def check_user_subscription(bot, user_id: int) -> tuple[bool, list]:
 
     for ch in channels:
         raw_cid = ch.get("channel_id") if isinstance(ch, dict) else ch["channel_id"]
-        try:
-            cid = int(raw_cid)
-        except (ValueError, TypeError):
-            cid = str(raw_cid)
+        cid_str = str(raw_cid).strip()
+
+        # Format channel ID for Telegram API lookup
+        if not cid_str.startswith("@") and not cid_str.startswith("-100"):
+            if cid_str.startswith("-") and cid_str[1:].isdigit():
+                pass
+            elif cid_str.isdigit():
+                cid_str = f"-100{cid_str}"
+            elif "t.me/" in cid_str:
+                slug = cid_str.split("t.me/")[-1].strip().lstrip("@")
+                if not slug.startswith("+") and not slug.startswith("joinchat/") and "/" not in slug:
+                    cid_str = f"@{slug}"
+            elif not cid_str.startswith("+"):
+                cid_str = f"@{cid_str}"
 
         try:
-            member = await bot.get_chat_member(chat_id=cid, user_id=user_id)
+            try:
+                cid_param = int(cid_str)
+            except ValueError:
+                cid_param = cid_str
+
+            member = await bot.get_chat_member(chat_id=cid_param, user_id=user_id)
             if member.status not in valid_statuses:
                 unjoined.append(ch)
         except Exception as e:
             err_text = str(e).lower()
-            if "chat not found" in err_text or "bot was kicked" in err_text or "chat_admin_required" in err_text or "admin" in err_text:
-                logger.warning(f"Bot lacks access to required channel {cid}: {e}")
-            else:
-                logger.info(f"User {user_id} not joined in channel {cid}: {e}")
-                unjoined.append(ch)
+            logger.info(f"FSub check for user {user_id} in {cid_str}: {e}")
+            # If user has not joined, Telegram raises 'user not found' or returns left
+            unjoined.append(ch)
 
     return len(unjoined) == 0, unjoined
 
@@ -1120,7 +1130,7 @@ async def template_token_received(update: Update, context: ContextTypes.DEFAULT_
         f.write(tinfo['code'])
 
     database.create_hosted_bot(bot_id, user_id, bot_name, token, script_path)
-    status_msg = await update.message.reply_text("⚙️ <i>Provisioning container and launching template instance...</i>", parse_mode="HTML")
+    status_msg = await update.message.reply_text("⚙️ <i>Provisioning Gravix dedicated cloud instance and launching template...</i>", parse_mode="HTML")
 
     success, msg = await bot_manager.start_bot(bot_id)
     context.user_data.clear()
@@ -1667,7 +1677,7 @@ async def host_bot_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     database.create_hosted_bot(bot_id, user_id, bot_name, token, script_path)
 
-    status_msg = await update.message.reply_text("⚙️ <i>Provisioning container environment and starting bot...</i>", parse_mode="HTML")
+    status_msg = await update.message.reply_text("⚙️ <i>Provisioning Gravix dedicated cloud environment and starting bot...</i>", parse_mode="HTML")
     success, msg = await bot_manager.start_bot(bot_id)
 
     if success:
@@ -1691,7 +1701,7 @@ async def host_bot_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         resp_text = (
             f"{header}\n\n"
-            "<blockquote>🎉 <b>Success!</b> Your custom bot has been provisioned and started in an isolated cloud container.</blockquote>\n\n"
+            "<blockquote>🎉 <b>Success!</b> Your custom bot has been provisioned and started on <b>Gravix Dedicated High-Speed Cloud</b>.</blockquote>\n\n"
             "<b>🤖 Instance Overview:</b>\n"
             f"<blockquote>• <b>Name:</b> <b>{safe_bot_name}</b>\n"
             f"• <b>Bot ID:</b> <code>#{html.escape(bot_id)}</code>\n"

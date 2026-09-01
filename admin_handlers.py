@@ -256,7 +256,7 @@ async def admin_stats_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"💽 <b>Disk Allocation:</b> <code>{disk_bar} {disk.percent}%</code>\n"
         f"   └ Free: <code>{disk_free_gb} GB</code> | Total: <code>{disk_total_gb} GB</code>"
         "</blockquote>\n\n"
-        "💡 <i>Telemetry metrics sampled in real-time from the master container environment.</i>"
+        "💡 <i>Telemetry metrics sampled in real-time from Gravix Dedicated Cloud Infrastructure.</i>"
     )
     reply_markup = ReplyKeyboardMarkup([[KeyboardButton("🔙 Back to Admin")]], resize_keyboard=True)
     await _send_admin_msg(update, text, reply_markup=reply_markup)

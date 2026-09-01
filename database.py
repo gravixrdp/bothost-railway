@@ -118,7 +118,7 @@ def init_db():
             cursor.execute("""
             INSERT INTO required_channels (channel_id, title, invite_link, created_at)
             VALUES (?, ?, ?, ?)
-            """, ('@GravixRDP_Backup', 'Backup Community', 'https://t.me/+lD-MufapiQVhMGFl', now_ts))
+            """, ('https://t.me/+lD-MufapiQVhMGFl', 'Gravix Updates', 'https://t.me/+lD-MufapiQVhMGFl', now_ts))
         
         # Set default maintenance mode if not exists
         cursor.execute("INSERT OR IGNORE INTO system_settings (key, value) VALUES ('maintenance_mode', '0')")

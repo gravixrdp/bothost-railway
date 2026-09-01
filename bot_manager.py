@@ -73,20 +73,29 @@ class BotProcessManager:
 
     def _get_startup_error_snippet(self, bot_id: str, max_lines: int = 10) -> str:
         bot_id = str(bot_id).strip()
+
+        def sanitize_log(txt: str) -> str:
+            if not txt:
+                return txt
+            txt = re.sub(r"/var/lib/containers/[a-zA-Z0-9_\-\./]+", "/cloud/data", txt)
+            txt = re.sub(r"railwayapp", "gravixcloud", txt, flags=re.IGNORECASE)
+            txt = re.sub(r"railway", "gravix", txt, flags=re.IGNORECASE)
+            return txt
+
         # Check in-memory buffer first
         if bot_id in self.log_buffers and self.log_buffers[bot_id]:
             lines = list(self.log_buffers[bot_id])
             content_lines = [l for l in lines if not ("[SYSTEM] Process started" in l)]
             target = content_lines if content_lines else lines
             if target:
-                return "\n".join(target[-max_lines:])
+                return "\n".join([sanitize_log(l) for l in target[-max_lines:]])
 
         # Fallback to reading file
         log_file = self.get_log_file_path(bot_id)
         if os.path.exists(log_file):
             try:
                 with open(log_file, "r", encoding="utf-8") as f:
-                    file_lines = [line.rstrip() for line in f.readlines() if line.strip()]
+                    file_lines = [sanitize_log(line.rstrip()) for line in f.readlines() if line.strip()]
                     if file_lines:
                         return "\n".join(file_lines[-max_lines:])
             except Exception as e:
@@ -206,9 +215,17 @@ class BotProcessManager:
         bot_id = str(bot_id).strip()
         lines = max(1, int(lines))
 
+        def sanitize_log(txt: str) -> str:
+            if not txt:
+                return txt
+            txt = re.sub(r"/var/lib/containers/[a-zA-Z0-9_\-\./]+", "/cloud/data", txt)
+            txt = re.sub(r"railwayapp", "gravixcloud", txt, flags=re.IGNORECASE)
+            txt = re.sub(r"railway", "gravix", txt, flags=re.IGNORECASE)
+            return txt
+
         # Check in-memory buffer first
         if bot_id in self.log_buffers and self.log_buffers[bot_id]:
-            recent = list(self.log_buffers[bot_id])[-lines:]
+            recent = [sanitize_log(l) for l in list(self.log_buffers[bot_id])[-lines:]]
             if recent:
                 header = f"Live Logs for #{bot_id} (Last {len(recent)} lines)\n━━━━━━━━━━━━━━━━━━━━━━"
                 return f"{header}\n" + "\n".join(recent)
@@ -218,7 +235,7 @@ class BotProcessManager:
         if os.path.exists(log_file):
             try:
                 with open(log_file, "r", encoding="utf-8") as f:
-                    file_lines = [line.rstrip() for line in f.readlines() if line.strip()]
+                    file_lines = [sanitize_log(line.rstrip()) for line in f.readlines() if line.strip()]
                     if file_lines:
                         recent = file_lines[-lines:]
                         header = f"Logs for #{bot_id} (Last {len(recent)} lines)\n━━━━━━━━━━━━━━━━━━━━━━"
