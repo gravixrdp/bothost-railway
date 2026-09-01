@@ -26,7 +26,10 @@ from code_analyzer import (
     extract_bot_token,
     extract_and_validate_zip,
     is_cancellation_text,
-    is_menu_navigation_text
+    is_menu_navigation_text,
+    to_bold_sans,
+    from_bold_sans,
+    normalize_user_input
 )
 
 logger = logging.getLogger("GravixHost.User")
@@ -190,13 +193,12 @@ async def verify_fsub_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 def get_main_reply_keyboard(user_id: int) -> ReplyKeyboardMarkup:
     keyboard = []
     if user_id == ADMIN_ID:
-        keyboard.append([KeyboardButton("👑 Open Admin Panel")])
+        keyboard.append([KeyboardButton("👑 𝗢𝗽𝗲𝗻 𝗔𝗱𝗺𝗶𝗻 𝗣𝗮𝗻𝗲𝗹 👑")])
     keyboard.extend([
-        [KeyboardButton("➕ Host New Bot"), KeyboardButton("🤖 My Hosted Bots")],
-        [KeyboardButton("⚡ Quick Template Deploy"), KeyboardButton("📊 My Account & Slots")],
-        [KeyboardButton("🎁 Refer & Earn Free Slots")],
-        [KeyboardButton("❓ Help & Guidelines"), KeyboardButton("💬 Customer Support")],
-        [KeyboardButton("🔄 Refresh")]
+        [KeyboardButton("➕ 𝗛𝗼𝘀𝘁 𝗡𝗲𝘄 𝗕𝗼𝘁"), KeyboardButton("🤖 𝗠𝘆 𝗛𝗼𝘀𝘁𝗲𝗱 𝗕𝗼𝘁𝘀")],
+        [KeyboardButton("⚡ 𝗤𝘂𝗶𝗰𝗸 𝗧𝗲𝗺𝗽𝗹𝗮𝘁𝗲𝘀"), KeyboardButton("📊 𝗠𝘆 𝗔𝗰𝗰𝗼𝘂𝗻𝘁 & 𝗦𝗹𝗼𝘁𝘀")],
+        [KeyboardButton("🎁 𝗥𝗲𝗳𝗲𝗿 & 𝗘𝗮𝗿𝗻 𝗦𝗹𝗼𝘁𝘀"), KeyboardButton("💬 𝗖𝘂𝘀𝘁𝗼𝗺𝗲𝗿 𝗦𝘂𝗽𝗽𝗼𝗿𝘁")],
+        [KeyboardButton("❓ 𝗛𝗲𝗹𝗽 & 𝗚𝘂𝗶𝗱𝗲𝗹𝗶𝗻𝗲𝘀"), KeyboardButton("🔄 𝗥𝗲𝗳𝗿𝗲𝘀𝗵")]
     ])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -217,49 +219,49 @@ def get_my_bots_reply_keyboard(user_bots: list, page: int = 0) -> ReplyKeyboardM
     if total_pages > 1:
         nav_row = []
         if page > 0:
-            nav_row.append(KeyboardButton("⬅️ Prev Bots"))
+            nav_row.append(KeyboardButton("⬅️ 𝗣𝗿𝗲𝘃 𝗕𝗼𝘁𝘀"))
         if page < total_pages - 1:
-            nav_row.append(KeyboardButton("Next Bots ➡️"))
+            nav_row.append(KeyboardButton("𝗡𝗲𝘅𝘁 𝗕𝗼𝘁𝘀 ➡️"))
         if nav_row:
             keyboard.append(nav_row)
 
-    keyboard.append([KeyboardButton("➕ Host Another Bot"), KeyboardButton("🔙 Back to Main Menu")])
+    keyboard.append([KeyboardButton("➕ 𝗛𝗼𝘀𝘁 𝗔𝗻𝗼𝘁𝗵𝗲𝗿 𝗕𝗼𝘁"), KeyboardButton("🔙 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_bot_detail_reply_keyboard(bot_id: str, status: str) -> ReplyKeyboardMarkup:
     keyboard = []
     if status == 'RUNNING':
         keyboard.append([
-            KeyboardButton(f"⏹️ Stop Bot [#{bot_id}]"),
-            KeyboardButton(f"🔄 Restart Bot [#{bot_id}]")
+            KeyboardButton(f"⏹️ 𝗦𝘁𝗼𝗽 𝗕𝗼𝘁 [#{bot_id}]"),
+            KeyboardButton(f"🔄 𝗥𝗲𝘀𝘁𝗮𝗿𝘁 𝗕𝗼𝘁 [#{bot_id}]")
         ])
     else:
         keyboard.append([
-            KeyboardButton(f"▶️ Start Bot [#{bot_id}]")
+            KeyboardButton(f"▶️ 𝗦𝘁𝗮𝗿𝘁 𝗕𝗼𝘁 [#{bot_id}]")
         ])
     keyboard.append([
-        KeyboardButton(f"📜 View Logs [#{bot_id}]"),
-        KeyboardButton(f"🗑️ Delete Bot [#{bot_id}]")
+        KeyboardButton(f"📜 𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀 [#{bot_id}]"),
+        KeyboardButton(f"🗑️ 𝗗𝗲𝗹𝗲𝘁𝗲 𝗕𝗼𝘁 [#{bot_id}]")
     ])
     keyboard.append([
-        KeyboardButton(f"🔑 Manage Env Vars [#{bot_id}]"),
-        KeyboardButton(f"💾 Export Backup [#{bot_id}]")
+        KeyboardButton(f"🔑 𝗠𝗮𝗻𝗮𝗴𝗲 𝗘𝗻𝘃 𝗩𝗮𝗿𝘀 [#{bot_id}]"),
+        KeyboardButton(f"💾 𝗘𝘅𝗽𝗼𝗿𝘁 𝗕𝗮𝗰𝗸𝘂𝗽 [#{bot_id}]")
     ])
     keyboard.append([
-        KeyboardButton("🔙 Back to My Bots"),
-        KeyboardButton("🏠 Main Menu")
+        KeyboardButton("🔙 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝘆 𝗕𝗼𝘁𝘀"),
+        KeyboardButton("🏠 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂")
     ])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_env_menu_keyboard(has_vars: bool = False) -> ReplyKeyboardMarkup:
-    top_row = [KeyboardButton("➕ Add Variable")]
+    top_row = [KeyboardButton("➕ 𝗔𝗱𝗱 𝗩𝗮𝗿𝗶𝗮𝗯𝗹𝗲")]
     if has_vars:
-        top_row.append(KeyboardButton("🗑️ Delete Variable"))
+        top_row.append(KeyboardButton("🗑️ 𝗗𝗲𝗹𝗲𝘁𝗲 𝗩𝗮𝗿𝗶𝗮𝗯𝗹𝗲"))
     keyboard = [
         top_row,
         [
-            KeyboardButton("🔙 Back to Bot Inspector"),
-            KeyboardButton("❌ Cancel")
+            KeyboardButton("🔙 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗕𝗼𝘁 𝗜𝗻𝘀𝗽𝗲𝗰𝘁𝗼𝗿"),
+            KeyboardButton("❌ 𝗖𝗮𝗻𝗰𝗲𝗹")
         ]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -267,8 +269,8 @@ def get_env_menu_keyboard(has_vars: bool = False) -> ReplyKeyboardMarkup:
 def get_delete_confirm_keyboard(bot_id: str) -> ReplyKeyboardMarkup:
     keyboard = [
         [
-            KeyboardButton(f"⚠️ Confirm Delete [#{bot_id}]"),
-            KeyboardButton(f"❌ Cancel Delete [#{bot_id}]")
+            KeyboardButton(f"⚠️ 𝗖𝗼𝗻𝗳𝗶𝗿𝗺 𝗗𝗲𝗹𝗲𝘁𝗲 [#{bot_id}]"),
+            KeyboardButton(f"❌ 𝗖𝗮𝗻𝗰𝗲𝗹 𝗗𝗲𝗹𝗲𝘁𝗲 [#{bot_id}]")
         ]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -277,20 +279,20 @@ def get_templates_reply_keyboard() -> ReplyKeyboardMarkup:
     keyboard = []
     for key, tinfo in TEMPLATES.items():
         keyboard.append([KeyboardButton(tinfo['name'])])
-    keyboard.append([KeyboardButton("🔙 Back to Main Menu")])
+    keyboard.append([KeyboardButton("🔙 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_back_to_main_keyboard() -> ReplyKeyboardMarkup:
-    keyboard = [[KeyboardButton("🔙 Back to Main Menu")]]
+    keyboard = [[KeyboardButton("🔙 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂")]]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_cancel_keyboard() -> ReplyKeyboardMarkup:
-    keyboard = [[KeyboardButton("❌ Cancel")]]
+    keyboard = [[KeyboardButton("❌ 𝗖𝗮𝗻𝗰𝗲𝗹")]]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_token_input_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
-        [KeyboardButton("⏩ Skip (Auto-Detect Token)"), KeyboardButton("❌ Cancel")]
+        [KeyboardButton("⏩ 𝗦𝗸𝗶𝗽 (𝗔𝘂𝘁𝗼-𝗗𝗲𝘁𝗲𝗰𝘁 𝗧𝗼𝗸𝗲𝗻)"), KeyboardButton("❌ 𝗖𝗮𝗻𝗰𝗲𝗹")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -403,12 +405,12 @@ async def show_my_bots(update: Update, context: ContextTypes.DEFAULT_TYPE, page:
             f"{header}\n\n"
             "<blockquote>You currently have no hosted bots provisioned on <b>Gravix-Host</b>.</blockquote>\n\n"
             "<b>🚀 Getting Started:</b>\n"
-            "<blockquote>• Tap <b>➕ Host New Bot</b> to deploy your custom Python script.\n"
-            "• Tap <b>⚡ Quick Template Deploy</b> to launch a ready-made template in seconds.</blockquote>"
+            "<blockquote>• Tap <b>➕ 𝗛𝗼𝘀𝘁 𝗡𝗲𝘄 𝗕𝗼𝘁</b> to deploy your custom Python script.\n"
+            "• Tap <b>⚡ 𝗤𝘂𝗶𝗰𝗸 𝗧𝗲𝗺𝗽𝗹𝗮𝘁𝗲𝘀</b> to launch a ready-made template in seconds.</blockquote>"
         )
         keyboard = ReplyKeyboardMarkup([
-            [KeyboardButton("➕ Host New Bot"), KeyboardButton("⚡ Quick Template Deploy")],
-            [KeyboardButton("🔙 Back to Main Menu")]
+            [KeyboardButton("➕ 𝗛𝗼𝘀𝘁 𝗡𝗲𝘄 𝗕𝗼𝘁"), KeyboardButton("⚡ 𝗤𝘂𝗶𝗰𝗸 𝗧𝗲𝗺𝗽𝗹𝗮𝘁𝗲𝘀")],
+            [KeyboardButton("🔙 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂")]
         ], resize_keyboard=True)
         if update.callback_query:
             await update.callback_query.message.reply_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -457,7 +459,9 @@ async def show_bot_details(update: Update, context: ContextTypes.DEFAULT_TYPE, b
         return
 
     if bot_id is None and update.message and update.message.text:
-        m = re.search(r"\[#([a-zA-Z0-9_-]+)\]", update.message.text)
+        raw_msg_text = update.message.text
+        clean_msg_text = normalize_user_input(raw_msg_text)
+        m = re.search(r"\[#([a-zA-Z0-9_-]+)\]", clean_msg_text) or re.search(r"\[#([a-zA-Z0-9_-]+)\]", raw_msg_text)
         if m:
             bot_id = m.group(1)
 
@@ -552,9 +556,10 @@ async def handle_bot_action(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             await update.message.reply_text(msg, parse_mode="HTML")
         return
 
-    text_input = update.message.text if (update.message and update.message.text) else ""
+    raw_input = update.message.text if (update.message and update.message.text) else ""
+    clean_input = normalize_user_input(raw_input)
     if bot_id is None:
-        m = re.search(r"\[#([a-zA-Z0-9_-]+)\]", text_input)
+        m = re.search(r"\[#([a-zA-Z0-9_-]+)\]", clean_input) or re.search(r"\[#([a-zA-Z0-9_-]+)\]", raw_input)
         if m:
             bot_id = m.group(1)
 
@@ -563,23 +568,24 @@ async def handle_bot_action(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         return
 
     if action is None:
-        if "▶️ Start Bot" in text_input:
+        c_low = clean_input.lower()
+        if "start bot" in c_low or ("start" in c_low and "bot" in c_low):
             action = "start"
-        elif "⏹️ Stop Bot" in text_input:
+        elif "stop bot" in c_low or ("stop" in c_low and "bot" in c_low):
             action = "stop"
-        elif "🔄 Restart Bot" in text_input:
+        elif "restart bot" in c_low or ("restart" in c_low and "bot" in c_low):
             action = "restart"
-        elif "📜 View Logs" in text_input:
+        elif "view logs" in c_low or "logs" in c_low:
             action = "logs"
-        elif "⚠️ Confirm Delete" in text_input:
+        elif "confirm delete" in c_low:
             action = "delete_execute"
-        elif "❌ Cancel Delete" in text_input:
+        elif "cancel delete" in c_low:
             action = "cancel_delete"
-        elif "🗑️ Delete Bot" in text_input:
+        elif "delete bot" in c_low:
             action = "delete_confirm"
-        elif "🔑 Manage Env Vars" in text_input or "🔑 Env Vars" in text_input:
+        elif "manage env vars" in c_low or "env vars" in c_low:
             action = "env"
-        elif "💾 Export Backup" in text_input:
+        elif "export backup" in c_low or "backup" in c_low:
             action = "backup"
 
     bot_data = database.get_bot(bot_id)
@@ -833,7 +839,7 @@ async def show_support_desk(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "⚡ <b>Support Hours:</b> 24/7 Community & Technical Assistance\n"
         "</blockquote>"
     )
-    reply_kb = ReplyKeyboardMarkup([[KeyboardButton("🔙 Back to Main Menu")]], resize_keyboard=True)
+    reply_kb = get_back_to_main_keyboard()
     if update.callback_query:
         await update.callback_query.message.reply_text(text, reply_markup=reply_kb, parse_mode="HTML")
     else:
@@ -887,7 +893,7 @@ async def show_referral_hub(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "💡 <i>Share your link in Telegram groups or channels to unlock unlimited free bot hosting capacity!</i>"
     )
 
-    reply_kb = ReplyKeyboardMarkup([[KeyboardButton("🔙 Back to Main Menu")]], resize_keyboard=True)
+    reply_kb = get_back_to_main_keyboard()
     if update.callback_query:
         try:
             await update.callback_query.answer()
@@ -1831,7 +1837,9 @@ async def user_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
 async def user_text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     if not update.message or not update.message.text:
         return False
-    text = update.message.text.strip()
+    raw_text = update.message.text.strip()
+    clean_text = normalize_user_input(raw_text)
+    clean_lower = clean_text.lower()
     user_id = update.effective_user.id
 
     db_user = database.get_or_create_user(user_id)
@@ -1844,63 +1852,106 @@ async def user_text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return True
 
     # Back / Home navigation
-    if text in ["🏠 Main Menu", "🔙 Back to Main Menu", "🔄 Refresh", "/start", "/menu"]:
+    if (
+        clean_lower in ["main menu", "back to main menu", "refresh", "/start", "/menu"]
+        or "back to main menu" in clean_lower
+        or "main menu" in clean_lower
+        or raw_text in ["🏠 Main Menu", "🔙 Back to Main Menu", "🔄 Refresh", "🔙 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂", "🏠 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂", "🔄 𝗥𝗲𝗳𝗿𝗲𝘀𝗵"]
+    ):
         await start_command(update, context)
         return True
 
     # My Bots & Back to My Bots
-    if text in ["🤖 My Hosted Bots", "🔙 Back to My Bots", "/mybots", "/bots"]:
+    if (
+        clean_lower in ["my hosted bots", "back to my bots", "/mybots", "/bots"]
+        or "my hosted bots" in clean_lower
+        or "back to my bots" in clean_lower
+        or raw_text in ["🤖 My Hosted Bots", "🔙 Back to My Bots", "🤖 𝗠𝘆 𝗛𝗼𝘀𝘁𝗲𝗱 𝗕𝗼𝘁𝘀", "🔙 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝘆 𝗕𝗼𝘁𝘀"]
+    ):
         await show_my_bots(update, context, page=0)
         return True
 
     # Host New Bot
-    if text in ["➕ Host New Bot", "➕ Host Custom Bot", "➕ Host Another Bot"]:
+    if (
+        clean_lower in ["host new bot", "host custom bot", "host another bot"]
+        or "host new bot" in clean_lower
+        or "host another bot" in clean_lower
+        or "host custom bot" in clean_lower
+        or raw_text in ["➕ Host New Bot", "➕ Host Custom Bot", "➕ Host Another Bot", "➕ 𝗛𝗼𝘀𝘁 𝗡𝗲𝘄 𝗕𝗼𝘁", "➕ 𝗛𝗼𝘀𝘁 𝗔𝗻𝗼𝘁𝗵𝗲𝗿 𝗕𝗼𝘁"]
+    ):
         await host_bot_start(update, context)
         return True
 
     # Pagination
-    if text == "⬅️ Prev Bots":
+    if "prev bots" in clean_lower or raw_text in ["⬅️ Prev Bots", "⬅️ 𝗣𝗿𝗲𝘃 𝗕𝗼𝘁𝘀"]:
         page = max(0, context.user_data.get('bots_page', 0) - 1)
         await show_my_bots(update, context, page=page)
         return True
-    if text == "Next Bots ➡️":
+    if "next bots" in clean_lower or raw_text in ["Next Bots ➡️", "𝗡𝗲𝘅𝘁 𝗕𝗼𝘁𝘀 ➡️"]:
         page = context.user_data.get('bots_page', 0) + 1
         await show_my_bots(update, context, page=page)
         return True
 
     # Quick Template Deploy
-    if text in ["⚡ Quick Template Deploy", "/templates"]:
+    if (
+        clean_lower in ["quick templates", "quick template deploy", "/templates"]
+        or "quick template" in clean_lower
+        or "quick templates" in clean_lower
+        or raw_text in ["⚡ Quick Templates", "⚡ Quick Template Deploy", "⚡ 𝗤𝘂𝗶𝗰𝗸 𝗧𝗲𝗺𝗽𝗹𝗮𝘁𝗲𝘀", "⚡ 𝗤𝘂𝗶𝗰𝗸 𝗧𝗲𝗺𝗽𝗹𝗮𝘁𝗲 𝗗𝗲𝗽𝗹𝗼𝘆"]
+    ):
         await show_templates_menu(update, context)
         return True
 
     # Account & Slots
-    if text in ["📊 My Account & Slots", "/account"]:
+    if (
+        clean_lower in ["my account & slots", "my account", "/account"]
+        or "my account" in clean_lower
+        or "account & slots" in clean_lower
+        or raw_text in ["📊 My Account & Slots", "📊 𝗠𝘆 𝗔𝗰𝗰𝗼𝘂𝗻𝘁 & 𝗦𝗹𝗼𝘁𝘀"]
+    ):
         await show_account_info(update, context)
         return True
 
     # Referral Hub & Slot Rewards
-    if text in ["🎁 Refer & Earn Free Slots", "🎁 Refer & Earn", "/referral", "/ref", "🎁 Referral Rewards"]:
+    if (
+        clean_lower in ["refer & earn free slots", "refer & earn slots", "refer & earn", "referral rewards", "/referral", "/ref"]
+        or "refer & earn" in clean_lower
+        or raw_text in ["🎁 Refer & Earn Free Slots", "🎁 Refer & Earn Slots", "🎁 Refer & Earn", "🎁 𝗥𝗲𝗳𝗲𝗿 & 𝗘𝗮𝗿𝗻 𝗦𝗹𝗼𝘁𝘀", "🎁 𝗥𝗲𝗳𝗲𝗿 & 𝗘𝗮𝗿𝗻 𝗙𝗿𝗲𝗲 𝗦𝗹𝗼𝘁𝘀"]
+    ):
         await show_referral_hub(update, context)
         return True
 
     # Help & Guidelines
-    if text in ["❓ Help & Guidelines", "/help"]:
+    if (
+        clean_lower in ["help & guidelines", "help", "/help", "guidelines"]
+        or "help & guidelines" in clean_lower
+        or raw_text in ["❓ Help & Guidelines", "❓ 𝗛𝗲𝗹𝗽 & 𝗚𝘂𝗶𝗱𝗲𝗹𝗶𝗻𝗲𝘀"]
+    ):
         await show_help(update, context)
         return True
 
     # Customer Support Desk
-    if text in ["💬 Customer Support", "/support", "/helpdesk"]:
+    if (
+        clean_lower in ["customer support", "support", "/support", "/helpdesk", "helpdesk"]
+        or "customer support" in clean_lower
+        or raw_text in ["💬 Customer Support", "💬 𝗖𝘂𝘀𝘁𝗼𝗺𝗲𝗿 𝗦𝘂𝗽𝗽𝗼𝗿𝘁"]
+    ):
         await show_support_desk(update, context)
         return True
 
     # Export Backup (Global / Standalone)
-    if text in ["💾 Export Backup", "💾 Export Data Backup", "/backup", "/export"]:
+    if (
+        clean_lower in ["export backup", "export data backup", "/backup", "/export"]
+        or "export backup" in clean_lower
+        or raw_text in ["💾 Export Backup", "💾 Export Data Backup", "💾 𝗘𝘅𝗽𝗼𝗿𝘁 𝗕𝗮𝗰𝗸𝘂𝗽", "💾 𝗘𝘅𝗽𝗼𝗿𝘁 𝗗𝗮𝘁𝗮 𝗕𝗮𝗰𝗸𝘂𝗽"]
+    ):
         await export_bot_data_handler(update, context)
         return True
 
     # Bot Item Selection: e.g. "🟢 My Bot [#a1b2c3d4]"
-    bot_select_match = re.search(r"\[#([a-zA-Z0-9_-]+)\]$", text)
-    if bot_select_match and not any(k in text for k in ["Start", "Stop", "Restart", "Logs", "Delete", "Env Vars", "Export Backup"]):
+    bot_select_match = re.search(r"\[#([a-zA-Z0-9_-]+)\]$", clean_text) or re.search(r"\[#([a-zA-Z0-9_-]+)\]$", raw_text)
+    action_keywords = ["start", "stop", "restart", "logs", "delete", "env vars", "export backup", "backup"]
+    if bot_select_match and not any(k in clean_lower for k in action_keywords):
         bot_id = bot_select_match.group(1)
         await show_bot_details(update, context, bot_id)
         return True
@@ -1908,31 +1959,31 @@ async def user_text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     # Bot Actions from keyboard buttons
     if bot_select_match:
         bot_id = bot_select_match.group(1)
-        if "▶️ Start Bot" in text:
+        if "start bot" in clean_lower or ("start" in clean_lower and "bot" in clean_lower):
             await handle_bot_action(update, context, "start", bot_id)
             return True
-        elif "⏹️ Stop Bot" in text:
+        elif "stop bot" in clean_lower or ("stop" in clean_lower and "bot" in clean_lower):
             await handle_bot_action(update, context, "stop", bot_id)
             return True
-        elif "🔄 Restart Bot" in text:
+        elif "restart bot" in clean_lower or ("restart" in clean_lower and "bot" in clean_lower):
             await handle_bot_action(update, context, "restart", bot_id)
             return True
-        elif "📜 View Logs" in text:
+        elif "view logs" in clean_lower or "logs" in clean_lower:
             await handle_bot_action(update, context, "logs", bot_id)
             return True
-        elif "🔑 Manage Env Vars" in text:
+        elif "manage env vars" in clean_lower or "env vars" in clean_lower:
             await user_env_start(update, context, bot_id=bot_id)
             return True
-        elif "💾 Export Backup" in text:
+        elif "export backup" in clean_lower or "backup" in clean_lower:
             await export_bot_data_handler(update, context, bot_id=bot_id)
             return True
-        elif "⚠️ Confirm Delete" in text:
+        elif "confirm delete" in clean_lower:
             await handle_bot_action(update, context, "delete_execute", bot_id)
             return True
-        elif "❌ Cancel Delete" in text:
+        elif "cancel delete" in clean_lower:
             await handle_bot_action(update, context, "cancel_delete", bot_id)
             return True
-        elif "🗑️ Delete Bot" in text:
+        elif "delete bot" in clean_lower:
             await handle_bot_action(update, context, "delete_confirm", bot_id)
             return True
 
@@ -2099,30 +2150,32 @@ async def user_env_start(update: Update, context: ContextTypes.DEFAULT_TYPE, bot
 async def user_env_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not update.message or not update.message.text:
         return U_ENV_CHOICE
-    text = update.message.text.strip()
+    raw_text = update.message.text.strip()
+    clean_text = normalize_user_input(raw_text)
+    clean_lower = clean_text.lower()
     bot_id = context.user_data.get('env_bot_id')
 
-    if is_cancellation_text(text) or "Back to Bot Inspector" in text or "Back to Bot Details" in text or "Back to My Bots" in text or "Main Menu" in text:
+    if is_cancellation_text(raw_text) or "back to bot inspector" in clean_lower or "back to bot details" in clean_lower or "back to my bots" in clean_lower or "main menu" in clean_lower:
         return await cancel_user_env(update, context)
 
-    if text in ["➕ Add Variable", "➕ Set Variable"]:
+    if "add variable" in clean_lower or "set variable" in clean_lower:
         await update.message.reply_text(
             "<b>➕ ADD ENVIRONMENT VARIABLE</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "<blockquote>Please send the variable <b>KEY name</b> (e.g. <code>OPENAI_API_KEY</code>, <code>DATABASE_URL</code>, <code>ADMIN_ID</code>):</blockquote>\n\n"
             "👇 <i>Send the key name or tap <b>❌ Cancel</b>:</i>",
-            reply_markup=ReplyKeyboardMarkup([[KeyboardButton("❌ Cancel")]], resize_keyboard=True),
+            reply_markup=get_cancel_keyboard(),
             parse_mode="HTML"
         )
         return U_ENV_ADD_KEY
 
-    elif text in ["🗑️ Delete Variable", "🗑️ Remove Variable"]:
+    elif "delete variable" in clean_lower or "remove variable" in clean_lower:
         await update.message.reply_text(
             "<b>🗑️ DELETE ENVIRONMENT VARIABLE</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "<blockquote>Please send the exact <b>KEY name</b> of the variable you want to delete:</blockquote>\n\n"
             "👇 <i>Send the key name or tap <b>❌ Cancel</b>:</i>",
-            reply_markup=ReplyKeyboardMarkup([[KeyboardButton("❌ Cancel")]], resize_keyboard=True),
+            reply_markup=get_cancel_keyboard(),
             parse_mode="HTML"
         )
         return U_ENV_DEL_KEY
@@ -2147,7 +2200,7 @@ async def user_env_add_key(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         if not re.match(r"^[A-Za-z0-9_]{1,64}$", key_name):
             await update.message.reply_text(
                 "<blockquote>⚠️ <b>Invalid Key Name:</b> Variable name can only contain letters, numbers, and underscores (max 64 chars).</blockquote>",
-                reply_markup=ReplyKeyboardMarkup([[KeyboardButton("❌ Cancel")]], resize_keyboard=True),
+                reply_markup=get_cancel_keyboard(),
                 parse_mode="HTML"
             )
             return U_ENV_ADD_KEY
@@ -2164,7 +2217,7 @@ async def user_env_add_key(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await update.message.reply_text(
             "<blockquote>⚠️ <b>Invalid Key Name:</b> Key can only contain letters, numbers, and underscores (max 64 chars).\n"
             "Example: <code>OPENAI_API_KEY</code></blockquote>",
-            reply_markup=ReplyKeyboardMarkup([[KeyboardButton("❌ Cancel")]], resize_keyboard=True),
+            reply_markup=get_cancel_keyboard(),
             parse_mode="HTML"
         )
         return U_ENV_ADD_KEY
@@ -2175,7 +2228,7 @@ async def user_env_add_key(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         f"<blockquote>Please send the <b>VALUE</b> for <code>{html.escape(key_name)}</code>:</blockquote>\n\n"
         "👇 <i>Send the value or tap <b>❌ Cancel</b>:</i>",
-        reply_markup=ReplyKeyboardMarkup([[KeyboardButton("❌ Cancel")]], resize_keyboard=True),
+        reply_markup=get_cancel_keyboard(),
         parse_mode="HTML"
     )
     return U_ENV_ADD_VAL
@@ -2240,15 +2293,15 @@ async def cancel_user_env(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 user_env_conv = ConversationHandler(
     entry_points=[
-        MessageHandler(filters.Regex(r"^🔑\s*Manage Env Vars.*"), user_env_start),
+        MessageHandler(filters.Regex(r"^(?:🔑\s*Manage Env Vars|🔑\s*Env Vars|🔑\s*𝗠𝗮𝗻𝗮𝗴𝗲 𝗘𝗻𝘃 𝗩𝗮𝗿𝘀).*"), user_env_start),
         CallbackQueryHandler(user_env_start, pattern=r"^ubot_env_"),
         CommandHandler("env", user_env_start)
     ],
     states={
         U_ENV_CHOICE: [
-            MessageHandler(filters.Regex(r"^(➕ Add Variable|➕ Set Variable)$"), user_env_choice),
-            MessageHandler(filters.Regex(r"^(🗑️ Delete Variable|🗑️ Remove Variable)$"), user_env_choice),
-            MessageHandler(filters.Regex(r"^(🔙 Back to Bot Inspector|🔙 Back to Bot Details)$"), cancel_user_env),
+            MessageHandler(filters.Regex(r"^(?:➕\s*Add Variable|➕\s*Set Variable|➕\s*𝗔𝗱𝗱 𝗩𝗮𝗿𝗶𝗮𝗯𝗹𝗲)$"), user_env_choice),
+            MessageHandler(filters.Regex(r"^(?:🗑️\s*Delete Variable|🗑️\s*Remove Variable|🗑️\s*𝗗𝗲𝗹𝗲𝘁𝗲 𝗩𝗮𝗿𝗶𝗮𝗯𝗹𝗲)$"), user_env_choice),
+            MessageHandler(filters.Regex(r"^(?:🔙\s*Back to Bot Inspector|🔙\s*Back to Bot Details|🔙\s*𝗕𝗮𝗰𝗸 𝘁𝗼 𝗕𝗼𝘁 𝗜𝗻𝘀𝗽𝗲𝗰𝘁𝗼𝗿)$"), cancel_user_env),
             MessageHandler(filters.TEXT & ~filters.COMMAND, user_env_choice)
         ],
         U_ENV_ADD_KEY: [
@@ -2263,7 +2316,7 @@ user_env_conv = ConversationHandler(
     },
     fallbacks=[
         CommandHandler("cancel", cancel_user_env),
-        MessageHandler(filters.Regex(r"(?i)^(❌\s*Cancel|/cancel|cancel|🔙\s*Back to Bot Inspector|🔙\s*Back to Bot Details|🔙\s*Back to My Bots|🔙\s*Back to Main Menu|🏠\s*Main Menu)$"), cancel_user_env),
+        MessageHandler(filters.Regex(r"(?i)^(?:❌\s*Cancel|❌\s*𝗖𝗮𝗻𝗰𝗲𝗹|/cancel|cancel|🔙\s*Back to Bot Inspector|🔙\s*Back to Bot Details|🔙\s*Back to My Bots|🔙\s*Back to Main Menu|🏠\s*Main Menu|🔙\s*𝗕𝗮𝗰𝗸 𝘁𝗼 𝗕𝗼𝘁 𝗜𝗻𝘀𝗽𝗲𝗰𝘁𝗼𝗿|🔙\s*𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝘆 𝗕𝗼𝘁𝘀|🔙\s*𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂|🏠\s*𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂)$"), cancel_user_env),
         CallbackQueryHandler(cancel_user_env, pattern="^(cancel_env|user_menu)$")
     ],
     conversation_timeout=600,

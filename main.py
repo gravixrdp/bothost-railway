@@ -1,8 +1,11 @@
 import asyncio
 import logging
 import os
+import re
 import sys
-from telegram import Update
+from typing import Pattern, Union, Optional
+
+from telegram import Update, Message
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -15,6 +18,7 @@ from telegram.ext import (
 from config import BOT_TOKEN, ADMIN_ID
 import database
 from bot_manager import bot_manager
+from code_analyzer import normalize_user_input, from_bold_sans
 from admin_handlers import (
     admin_panel,
     admin_stats_handler,
@@ -85,6 +89,31 @@ logger = logging.getLogger("GravixHost.Main")
 # conversations so they cannot hijack later input.
 CONV_TIMEOUT = 600
 
+
+class NormalizedRegex(filters.MessageFilter):
+    """
+    Message filter that normalizes message text (converting Unicode Bold Sans-Serif,
+    Serif Bold, Monospace, etc. to standard ASCII text) before evaluating regex patterns.
+    Supports both plain ASCII and Unicode styled fonts seamlessly.
+    """
+    __slots__ = ("pattern",)
+
+    def __init__(self, pattern: Union[str, Pattern[str]]):
+        if isinstance(pattern, str):
+            pattern = re.compile(pattern)
+        self.pattern: Pattern[str] = pattern
+        super().__init__(name=f"NormalizedRegex({self.pattern})", data_filter=True)
+
+    def filter(self, message: Message) -> dict[str, list[re.Match[str]]]:
+        if message and message.text:
+            clean = normalize_user_input(message.text)
+            if match := self.pattern.search(clean):
+                return {"matches": [match]}
+            if match := self.pattern.search(message.text):
+                return {"matches": [match]}
+        return {}
+
+
 async def post_init(application):
     logger.info("Initializing Gravix-Host Database & Storage...")
     database.init_db()
@@ -103,16 +132,78 @@ async def post_init(application):
                 resumed += 1
     logger.info(f"Gravix-Host initialized. Auto-resumed {resumed} bot(s).")
 
+
 async def general_message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
+    text = update.message.text
+    clean_text = normalize_user_input(text)
     user_id = update.effective_user.id
+
     if user_id == ADMIN_ID:
         handled = await handle_admin_text(update, context)
         if handled:
             return
     handled = await user_text_router(update, context)
     if handled:
+        return
+
+    # Fallback checking on normalized text if raw handlers didn't match
+    if user_id == ADMIN_ID:
+        if clean_text in ["👑 Open Admin Panel", "🔄 Refresh Admin", "🔙 Back to Admin", "🏠 Back to Admin"]:
+            await admin_panel(update, context)
+            return
+        elif clean_text == "🏠 Exit Admin":
+            await admin_exit_handler(update, context)
+            return
+        elif clean_text == "📊 System Stats":
+            await admin_stats_handler(update, context)
+            return
+        elif clean_text.startswith("⚙️ Toggle Maintenance"):
+            await admin_toggle_maint_handler(update, context)
+            return
+        elif clean_text in ["📢 Broadcast Announcement", "📢 Broadcast Message"]:
+            await admin_broadcast_prompt_handler(update, context)
+            return
+        elif clean_text in ["👥 User Manager", "🔙 Back to Users"]:
+            page = context.user_data.get('admin_users_page', 0) if clean_text == "🔙 Back to Users" else 0
+            await admin_users_list_handler(update, context, page)
+            return
+        elif clean_text in ["🤖 All Hosted Bots", "🔙 Back to All Bots"]:
+            page = context.user_data.get('admin_bots_page', 0) if clean_text == "🔙 Back to All Bots" else 0
+            await admin_bots_list_handler(update, context, page)
+            return
+        elif clean_text in ["📢 Force-Sub Channels", "🔙 Back to Force-Sub"]:
+            page = context.user_data.get('admin_fsub_page', 0) if clean_text == "🔙 Back to Force-Sub" else 0
+            await admin_fsub_list_handler(update, context, page)
+            return
+
+    if clean_text in ["🏠 Main Menu", "🔙 Back to Main Menu", "🔄 Refresh", "/start", "/menu"]:
+        await start_command(update, context)
+        return
+    elif clean_text in ["🤖 My Hosted Bots", "🔙 Back to My Bots", "/mybots", "/bots"]:
+        await show_my_bots(update, context, page=0)
+        return
+    elif clean_text in ["➕ Host New Bot", "➕ Host Custom Bot", "➕ Host Another Bot"]:
+        await host_bot_start(update, context)
+        return
+    elif clean_text in ["⚡ Quick Template Deploy", "/templates"]:
+        await show_templates_menu(update, context)
+        return
+    elif clean_text in ["📊 My Account & Slots", "/account", "/slots"]:
+        await show_account_info(update, context)
+        return
+    elif clean_text in ["🎁 Refer & Earn Free Slots", "🎁 Refer & Earn", "🎁 Referral Rewards", "/referral", "/ref"]:
+        await show_referral_hub(update, context)
+        return
+    elif clean_text in ["❓ Help & Guidelines", "/help"]:
+        await show_help(update, context)
+        return
+    elif clean_text in ["💬 Customer Support", "/support", "/helpdesk"]:
+        await show_support_desk(update, context)
+        return
+    elif clean_text in ["💾 Export Backup", "💾 Export Data Backup", "/backup", "/export"]:
+        await export_bot_data_handler(update, context)
         return
 
     nav_card = (
@@ -125,8 +216,10 @@ async def general_message_router(update: Update, context: ContextTypes.DEFAULT_T
         parse_mode="HTML"
     )
 
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Exception while handling an update: {context.error}", exc_info=context.error)
+
 
 def main():
     if not BOT_TOKEN or BOT_TOKEN == "DISABLED":
@@ -155,17 +248,24 @@ def main():
     # Conversation Handlers
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    cancel_filter = filters.Regex(r"(?i)^(❌\s*Cancel|/cancel|cancel|🔙\s*Back to Main Menu|🏠\s*Main Menu|🔙\s*Back to Admin|🏠\s*Back to Admin|🏠\s*Exit Admin)$")
+    cancel_filter = NormalizedRegex(
+        r"(?i)^(❌\s*(?:Cancel|𝗖𝗮𝗻𝗰𝗲𝗹)|/cancel|cancel|🔙\s*(?:Back to Main Menu|𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂)|"
+        r"🏠\s*(?:Main Menu|𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂)|🔙\s*(?:Back to Admin|𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻)|"
+        r"🏠\s*(?:Back to Admin|𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻)|🏠\s*(?:Exit Admin|𝗘𝘅𝗶𝘁 𝗔𝗱𝗺𝗶𝗻))$"
+    )
 
     host_conv = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(host_bot_start, pattern="^user_host_start$"),
-            MessageHandler(filters.Regex("^(➕ Host New Bot|➕ Host Custom Bot|➕ Host Another Bot)$"), host_bot_start)
+            MessageHandler(
+                NormalizedRegex(r"^(?:➕\s*(?:Host New Bot|Host Custom Bot|Host Another Bot|𝗛𝗼𝘀𝘁 𝗡𝗲𝘄 𝗕𝗼𝘁|𝗛𝗼𝘀𝘁 𝗖𝘂𝘀𝘁𝗼𝗺 𝗕𝗼𝘁|𝗛𝗼𝘀𝘁 𝗔𝗻𝗼𝘁𝗵𝗲𝗿 𝗕𝗼𝘁))$"),
+                host_bot_start
+            )
         ],
         states={
             NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~cancel_filter, host_bot_name)],
             TOKEN: [
-                MessageHandler(filters.Regex(r"^(⏩ Skip \(Auto-Detect Token\)|skip)$"), host_bot_token),
+                MessageHandler(NormalizedRegex(r"^(?:⏩\s*(?:Skip \(Auto-Detect Token\)|𝗦𝗸𝗶𝗽 \(𝗔𝘂𝘁𝗼-𝗗𝗲𝘁𝗲𝗰𝘁 𝗧𝗼𝗸𝗲𝗻\))|skip)$"), host_bot_token),
                 MessageHandler(filters.TEXT & ~filters.COMMAND & ~cancel_filter, host_bot_token)
             ],
             CODE: [
@@ -175,7 +275,10 @@ def main():
         },
         fallbacks=[
             CommandHandler("cancel", cancel_host),
-            MessageHandler(filters.Regex(r"(?i)^(❌\s*Cancel|/cancel|cancel|🔙\s*Back to Main Menu|🏠\s*Main Menu)$"), cancel_host),
+            MessageHandler(
+                NormalizedRegex(r"(?i)^(?:❌\s*(?:Cancel|𝗖𝗮𝗻𝗰𝗲𝗹)|/cancel|cancel|🔙\s*(?:Back to Main Menu|𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂)|🏠\s*(?:Main Menu|𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂))$"),
+                cancel_host
+            ),
             CallbackQueryHandler(cancel_host, pattern="^(cancel_host|user_menu)$")
         ],
         conversation_timeout=CONV_TIMEOUT,
@@ -185,14 +288,20 @@ def main():
     tpl_conv = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(template_select_start, pattern="^deploy_tpl_"),
-            MessageHandler(filters.Regex("^(📢 Simple Echo & Info Bot|🛡️ Group Welcome Bot|📣 Broadcast Bot.*|🤖 AI ChatGPT.*|📦 Telegram File Store.*|🛡️ Anti-Spam.*)$"), template_select_start)
+            MessageHandler(
+                NormalizedRegex(r"^(?:📢\s*Simple Echo & Info Bot|🛡️\s*Group Welcome Bot|📣\s*Broadcast Bot.*|🤖\s*AI ChatGPT.*|📦\s*Telegram File Store.*|🛡️\s*Anti-Spam.*)$"),
+                template_select_start
+            )
         ],
         states={
             TPL_TOKEN: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~cancel_filter, template_token_received)]
         },
         fallbacks=[
             CommandHandler("cancel", cancel_tpl),
-            MessageHandler(filters.Regex(r"(?i)^(❌\s*Cancel|/cancel|cancel|🔙\s*Back to Main Menu|🏠\s*Main Menu)$"), cancel_tpl),
+            MessageHandler(
+                NormalizedRegex(r"(?i)^(?:❌\s*(?:Cancel|𝗖𝗮𝗻𝗰𝗲𝗹)|/cancel|cancel|🔙\s*(?:Back to Main Menu|𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂)|🏠\s*(?:Main Menu|𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂))$"),
+                cancel_tpl
+            ),
             CallbackQueryHandler(cancel_tpl, pattern="^(cancel_tpl|user_menu)$")
         ],
         conversation_timeout=CONV_TIMEOUT,
@@ -201,7 +310,10 @@ def main():
 
     admin_fsub_conv = ConversationHandler(
         entry_points=[
-            MessageHandler(filters.Regex("^➕ Add Force-Sub Channel$"), admin_fsub_add_start),
+            MessageHandler(
+                NormalizedRegex(r"^(?:➕\s*(?:Add Force-Sub Channel|𝗔𝗱𝗱 𝗙𝗼𝗿𝗰𝗲-𝗦𝘂𝗯 𝗖𝗵𝗮𝗻𝗻𝗲𝗹))$"),
+                admin_fsub_add_start
+            ),
             CallbackQueryHandler(admin_fsub_add_start, pattern="^admin_fsub_add_start$"),
             CommandHandler("addchannel", admin_fsub_add_start)
         ],
@@ -212,7 +324,10 @@ def main():
         },
         fallbacks=[
             CommandHandler("cancel", admin_fsub_cancel),
-            MessageHandler(filters.Regex(r"(?i)^(❌\s*Cancel|/cancel|cancel|🔙\s*Back to Admin|🏠\s*Back to Admin|🏠\s*Exit Admin)$"), admin_fsub_cancel),
+            MessageHandler(
+                NormalizedRegex(r"(?i)^(?:❌\s*(?:Cancel|𝗖𝗮𝗻𝗰𝗲𝗹)|/cancel|cancel|🔙\s*(?:Back to Admin|𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻)|🏠\s*(?:Back to Admin|𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻)|🏠\s*(?:Exit Admin|𝗘𝘅𝗶𝘁 𝗔𝗱𝗺𝗶𝗻))$"),
+                admin_fsub_cancel
+            ),
             CallbackQueryHandler(admin_fsub_cancel, pattern="^(admin_fsub_cancel|admin_panel)$")
         ],
         conversation_timeout=CONV_TIMEOUT,
@@ -244,47 +359,134 @@ def main():
     application.add_handler(admin_slots_conv)
 
     # 3. User Navigation & Primary Menus
-    application.add_handler(MessageHandler(filters.Regex("^(🔙 Back to Main Menu|🏠 Main Menu|🔄 Refresh)$"), start_command))
-    application.add_handler(MessageHandler(filters.Regex("^🤖 My Hosted Bots$"), show_my_bots))
-    application.add_handler(MessageHandler(filters.Regex("^🔙 Back to My Bots$"), show_my_bots))
-    application.add_handler(MessageHandler(filters.Regex("^⚡ Quick Template Deploy$"), show_templates_menu))
-    application.add_handler(MessageHandler(filters.Regex("^📊 My Account & Slots$"), show_account_info))
-    application.add_handler(MessageHandler(filters.Regex("^(🎁 Refer & Earn Free Slots|🎁 Refer & Earn|🎁 Referral Rewards)$"), show_referral_hub))
-    application.add_handler(MessageHandler(filters.Regex("^❓ Help & Guidelines$"), show_help))
-    application.add_handler(MessageHandler(filters.Regex(r"^(💬 Customer Support|/support|/helpdesk)$"), show_support_desk))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:🔙\s*(?:Back to Main Menu|𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂)|🏠\s*(?:Main Menu|𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂)|🔄\s*(?:Refresh|𝗥𝗲𝗳𝗿𝗲𝘀𝗵))$"),
+        start_command
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:🤖\s*(?:My Hosted Bots|𝗠𝘆 𝗛𝗼𝘀𝘁𝗲𝗱 𝗕𝗼𝘁𝘀))$"),
+        show_my_bots
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:🔙\s*(?:Back to My Bots|𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝘆 𝗕𝗼𝘁𝘀))$"),
+        show_my_bots
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:⚡\s*(?:Quick Template Deploy|𝗤𝘂𝗶𝗰𝗸 𝗧𝗲𝗺𝗽𝗹𝗮𝘁𝗲 𝗗𝗲𝗽𝗹𝗼𝘆))$"),
+        show_templates_menu
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:📊\s*(?:My Account & Slots|𝗠𝘆 𝗔𝗰𝗰𝗼𝘂𝗻𝘁 & 𝗦𝗹𝗼𝘁𝘀)|/account|/slots)$"),
+        show_account_info
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:🎁\s*(?:Refer & Earn Free Slots|Refer & Earn|Referral Rewards|𝗥𝗲𝗳𝗲𝗿 & 𝗘𝗮𝗿𝗻 𝗙𝗿𝗲𝗲 𝗦𝗹𝗼𝘁𝘀|𝗥𝗲𝗳𝗲𝗿 & 𝗘𝗮𝗿𝗻|𝗥𝗲𝗳𝗲𝗿𝗿𝗮𝗹 𝗥𝗲𝘄𝗮𝗿𝗱𝘀)|/referral|/ref)$"),
+        show_referral_hub
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:❓\s*(?:Help & Guidelines|𝗛𝗲𝗹𝗽 & 𝗚𝘂𝗶𝗱𝗲𝗹𝗶𝗻𝗲𝘀))$"),
+        show_help
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:💬\s*(?:Customer Support|𝗖𝘂𝘀𝘁𝗼𝗺𝗲𝗿 𝗦𝘂𝗽𝗽𝗼𝗿𝘁)|/support|/helpdesk)$"),
+        show_support_desk
+    ))
 
     # 4. User Bots Pagination, Details, & Actions
-    application.add_handler(MessageHandler(filters.Regex("^(⬅️ Prev Bots|Next Bots ➡️)$"), user_text_router))
-    application.add_handler(MessageHandler(filters.Regex(r"^(?:🟢|🔴|⚪)\s+.*\[#([a-zA-Z0-9_-]+)\]$"), show_bot_details))
-    application.add_handler(MessageHandler(filters.Regex(r"^(?:▶️ Start Bot|⏹️ Stop Bot|🔄 Restart Bot|📜 View Logs|🗑️ Delete Bot)\s+\[#([a-zA-Z0-9_-]+)\]$"), handle_bot_action))
-    application.add_handler(MessageHandler(filters.Regex(r"^(?:⚠️ Confirm Delete|❌ Cancel Delete)\s+\[#([a-zA-Z0-9_-]+)\]$"), handle_bot_action))
-    application.add_handler(MessageHandler(filters.Regex(r"^(?:💾 Export Backup|💾 Export Data Backup)\s*(?:\[#[a-zA-Z0-9_-]+\])?$"), export_bot_data_handler))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:⬅️\s*(?:Prev Bots|𝗣𝗿𝗲𝘃 𝗕𝗼𝘁𝘀)|(?:Next Bots|𝗡𝗲𝘅𝘁 𝗕𝗼𝘁𝘀)\s*➡️)$"),
+        user_text_router
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:🟢|🔴|⚪)\s+.*\[#([a-zA-Z0-9_-]+)\]$"),
+        show_bot_details
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:▶️\s*(?:Start Bot|𝗦𝘁𝗮𝗿𝘁 𝗕𝗼𝘁)|⏹️\s*(?:Stop Bot|𝗦𝘁𝗼𝗽 𝗕𝗼𝘁)|🔄\s*(?:Restart Bot|𝗥𝗲𝘀𝘁𝗮𝗿𝘁 𝗕𝗼𝘁)|📜\s*(?:View Logs|𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀)|🗑️\s*(?:Delete Bot|𝗗𝗲𝗹𝗲𝘁𝗲 𝗕𝗼𝘁)|🔑\s*(?:Manage Env Vars|Env Vars|𝗠𝗮𝗻𝗮𝗴𝗲 𝗘𝗻𝘃 𝗩𝗮𝗿𝘀|𝗘𝗻𝘃 𝗩𝗮𝗿𝘀))\s+\[#([a-zA-Z0-9_-]+)\]$"),
+        handle_bot_action
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:⚠️\s*(?:Confirm Delete|𝗖𝗼𝗻𝗳𝗶𝗿𝗺 𝗗𝗲𝗹𝗲𝘁𝗲)|❌\s*(?:Cancel Delete|𝗖𝗮𝗻𝗰𝗲𝗹 𝗗𝗲𝗹𝗲𝘁𝗲))\s+\[#([a-zA-Z0-9_-]+)\]$"),
+        handle_bot_action
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:💾\s*(?:Export Backup|Export Data Backup|𝗘𝘅𝗽𝗼𝗿𝘁 𝗕𝗮𝗰𝗸𝘂𝗽|𝗘𝘅𝗽𝗼𝗿𝘁 𝗗𝗮𝘁𝗮 𝗕𝗮𝗰𝗸𝘂𝗽))\s*(?:\[#([a-zA-Z0-9_-]+)\])?$"),
+        export_bot_data_handler
+    ))
 
     # 5. Admin Panel Open / Navigation / Stats
-    application.add_handler(MessageHandler(filters.Regex("^(👑 Open Admin Panel|🔄 Refresh Admin|🔙 Back to Admin|🏠 Back to Admin)$"), admin_panel))
-    application.add_handler(MessageHandler(filters.Regex("^🏠 Exit Admin$"), admin_exit_handler))
-    application.add_handler(MessageHandler(filters.Regex("^📊 System Stats$"), admin_stats_handler))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:👑\s*(?:Open Admin Panel|𝗢𝗽𝗲𝗻 𝗔𝗱𝗺𝗶𝗻 𝗣𝗮𝗻𝗲𝗹)|🔄\s*(?:Refresh Admin|𝗥𝗲𝗳𝗿𝗲𝘀𝗵 𝗔𝗱𝗺𝗶𝗻)|🔙\s*(?:Back to Admin|𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻)|🏠\s*(?:Back to Admin|𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻))$"),
+        admin_panel
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:🏠\s*(?:Exit Admin|𝗘𝘅𝗶𝘁 𝗔𝗱𝗺𝗶𝗻))$"),
+        admin_exit_handler
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:📊\s*(?:System Stats|𝗦𝘆𝘀𝘁𝗲𝗺 𝗦𝘁𝗮𝘁𝘀))$"),
+        admin_stats_handler
+    ))
 
     # 6. Admin Users Management
-    application.add_handler(MessageHandler(filters.Regex("^(👥 User Manager|🔙 Back to Users)$"), admin_users_list_handler))
-    application.add_handler(MessageHandler(filters.Regex("^(⬅️ Prev Users|Next Users ➡️)$"), handle_admin_text))
-    application.add_handler(MessageHandler(filters.Regex(r"^👤\s+.+\s+\(UID:\s*\d+\)$"), admin_user_detail_handler))
-    application.add_handler(MessageHandler(filters.Regex(r"^(?:🔓 Unban User|🚫 Ban User)\s+\[UID:\s*\d+\]$"), admin_user_action_handler))
-    application.add_handler(MessageHandler(filters.Regex(r"^(?:➕ \+1 Slot|➖ -1 Slot|➕ Add \+2 Slots)\s+\[UID:\s*\d+\]$"), admin_user_action_handler))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:👥\s*(?:User Manager|𝗨𝘀𝗲𝗿 𝗠𝗮𝗻𝗮𝗴𝗲𝗿)|🔙\s*(?:Back to Users|𝗕𝗮𝗰𝗸 𝘁𝗼 𝗨𝘀𝗲𝗿𝘀))$"),
+        admin_users_list_handler
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:⬅️\s*(?:Prev Users|𝗣𝗿𝗲𝘃 𝗨𝘀𝗲𝗿𝘀)|(?:Next Users|𝗡𝗲𝘅𝘁 𝗨𝘀𝗲𝗿𝘀)\s*➡️)$"),
+        handle_admin_text
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^👤\s+.+\s+\((?:UID|𝗨𝗜𝗗):\s*(\d+)\)$"),
+        admin_user_detail_handler
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:🔓\s*(?:Unban User|𝗨𝗻𝗯𝗮𝗻 𝗨𝘀𝗲𝗿)|🚫\s*(?:Ban User|𝗕𝗮𝗻 𝗨𝘀𝗲𝗿))\s+\[(?:UID|𝗨𝗜𝗗):\s*(\d+)\]$"),
+        admin_user_action_handler
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:➕\s*(?:\+1|＋1|\+𝟭|＋𝟭)\s*(?:Slot|𝗦𝗹𝗼𝘁)|➖\s*(?:-1|－1|-𝟭|－𝟭)\s*(?:Slot|𝗦𝗹𝗼𝘁)|➕\s*(?:Add|𝗔𝗱𝗱)\s*(?:\+2|＋2|\+𝟮|＋𝟮)\s*(?:Slots|𝗦𝗹𝗼𝘁𝘀))\s+\[(?:UID|𝗨𝗜𝗗):\s*(\d+)\]$"),
+        admin_user_action_handler
+    ))
 
     # 7. Admin Bots Management
-    application.add_handler(MessageHandler(filters.Regex("^(🤖 All Hosted Bots|🔙 Back to All Bots)$"), admin_bots_list_handler))
-    application.add_handler(MessageHandler(filters.Regex("^(⬅️ Prev All Bots|Next All Bots ➡️)$"), handle_admin_text))
-    application.add_handler(MessageHandler(filters.Regex(r"^(?:▶️ Force Start|⏹️ Stop|🔄 Restart|📜 View Logs|🗑️ Force Delete)\s+\[#[a-zA-Z0-9_-]+\]$"), admin_bot_action_handler))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:🤖\s*(?:All Hosted Bots|𝗔𝗹𝗹 𝗛𝗼𝘀𝘁𝗲𝗱 𝗕𝗼𝘁𝘀)|🔙\s*(?:Back to All Bots|𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗹𝗹 𝗕𝗼𝘁𝘀))$"),
+        admin_bots_list_handler
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:⬅️\s*(?:Prev All Bots|𝗣𝗿𝗲𝘃 𝗔𝗹𝗹 𝗕𝗼𝘁𝘀)|(?:Next All Bots|𝗡𝗲𝘅𝘁 𝗔𝗹𝗹 𝗕𝗼𝘁𝘀)\s*➡️)$"),
+        handle_admin_text
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:▶️\s*(?:Force Start|𝗙𝗼𝗿𝗰𝗲 𝗦𝘁𝗮𝗿𝘁)|⏹️\s*(?:Stop|𝗦𝘁𝗼𝗽)|🔄\s*(?:Restart|𝗥𝗲𝘀𝘁𝗮𝗿𝘁)|📜\s*(?:View Logs|𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀)|🗑️\s*(?:Force Delete|𝗙𝗼𝗿𝗰𝗲 𝗗𝗲𝗹𝗲𝘁𝗲))\s+\[#([a-zA-Z0-9_-]+)\]$"),
+        admin_bot_action_handler
+    ))
 
     # 8. Admin Force-Sub Channel Management
-    application.add_handler(MessageHandler(filters.Regex("^(📢 Force-Sub Channels|🔙 Back to Force-Sub)$"), admin_fsub_list_handler))
-    application.add_handler(MessageHandler(filters.Regex("^(⬅️ Prev FSub|Next FSub ➡️)$"), handle_admin_text))
-    application.add_handler(MessageHandler(filters.Regex(r"^🗑️ Remove\s+.+\s+\[.+\]$"), admin_fsub_del_handler))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:📢\s*(?:Force-Sub Channels|𝗙𝗼𝗿𝗰𝗲-𝗦𝘂𝗯 𝗖𝗵𝗮𝗻𝗻𝗲𝗹𝘀)|🔙\s*(?:Back to Force-Sub|𝗕𝗮𝗰𝗸 𝘁𝗼 𝗙𝗼𝗿𝗰𝗲-𝗦𝘂𝗯))$"),
+        admin_fsub_list_handler
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:⬅️\s*(?:Prev FSub|𝗣𝗿𝗲𝘃 𝗙𝗦𝘂𝗯)|(?:Next FSub|𝗡𝗲𝘅𝘁 𝗙𝗦𝘂𝗯)\s*➡️)$"),
+        handle_admin_text
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^🗑️\s*(?:Remove|𝗥𝗲𝗺𝗼𝘃𝗲)\s+.+\s+\[.+\]$"),
+        admin_fsub_del_handler
+    ))
 
     # 9. Admin Maintenance & Global Broadcast Announcement
-    application.add_handler(MessageHandler(filters.Regex(r"^⚙️ Toggle Maintenance.*"), admin_toggle_maint_handler))
-    application.add_handler(MessageHandler(filters.Regex("^(📢 Broadcast Announcement|📢 Broadcast Message)$"), admin_broadcast_prompt_handler))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^⚙️\s*(?:Toggle Maintenance|𝗧𝗼𝗴𝗴𝗹𝗲 𝗠𝗮𝗶𝗻𝘁𝗲𝗻𝗮𝗻𝗰𝗲).*"),
+        admin_toggle_maint_handler
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:📢\s*(?:Broadcast Announcement|Broadcast Message|𝗕𝗿𝗼𝗮𝗱𝗰𝗮𝘀𝘁 𝗔𝗻𝗻𝗼𝘂𝗻𝗰𝗲𝗺𝗲𝗻𝘁|𝗕𝗿𝗼𝗮𝗱𝗰𝗮𝘀𝘁 𝗠𝗲𝘀𝘀𝗮𝗴𝗲))$"),
+        admin_broadcast_prompt_handler
+    ))
 
     # 10. Direct Document Uploads (.py & .zip) outside active conversation
     application.add_handler(MessageHandler(filters.Document.ALL & ~filters.COMMAND, handle_direct_document_upload))
@@ -301,5 +503,7 @@ def main():
 
     application.run_polling(drop_pending_updates=True)
 
+
 if __name__ == '__main__':
     main()
+

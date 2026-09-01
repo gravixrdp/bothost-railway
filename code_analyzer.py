@@ -52,7 +52,10 @@ NAVIGATION_BUTTONS: Set[str] = {
 # Sub-menu action and feature buttons
 SUB_MENU_BUTTONS: Set[str] = {
     "🎁 refer & earn free slots",
+    "🎁 refer & earn slots",
     "🎁 refer & earn",
+    "refer & earn slots",
+    "refer & earn free slots",
     "🔑 manage env vars",
     "💾 export data backup",
     "💾 export backup",
@@ -60,17 +63,32 @@ SUB_MENU_BUTTONS: Set[str] = {
 
 # Top-level main menu buttons
 MAIN_MENU_BUTTONS: Set[str] = {
+    "👑 open admin panel 👑",
     "👑 open admin panel",
+    "open admin panel 👑",
+    "open admin panel",
     "🤖 my hosted bots",
+    "⚡ quick templates",
     "⚡ quick template deploy",
+    "quick templates",
+    "quick template deploy",
     "📊 my account & slots",
+    "my account & slots",
     "❓ help & guidelines",
+    "help & guidelines",
     "💬 customer support",
+    "customer support",
     "🔄 refresh",
+    "refresh",
     "➕ host new bot",
+    "host new bot",
     "➕ host another bot",
+    "host another bot",
     "🎁 refer & earn free slots",
+    "🎁 refer & earn slots",
     "🎁 refer & earn",
+    "refer & earn slots",
+    "refer & earn free slots",
     "🔑 manage env vars",
     "💾 export data backup",
     "💾 export backup",
@@ -293,6 +311,120 @@ def extract_and_validate_zip(
     return True, "Valid Zip Project", extracted_token, imported_modules
 
 
+# =====================================================================
+# Typography & Unicode Font Conversion Engines
+# =====================================================================
+
+_TO_BOLD_SANS_MAP: dict[int, int] = {
+    ord(c): 0x1D5D4 + (ord(c) - ord("A")) for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+}
+_TO_BOLD_SANS_MAP.update({
+    ord(c): 0x1D5EE + (ord(c) - ord("a")) for c in "abcdefghijklmnopqrstuvwxyz"
+})
+_TO_BOLD_SANS_MAP.update({
+    ord(c): 0x1D7EC + (ord(c) - ord("0")) for c in "0123456789"
+})
+_TO_BOLD_SANS_TABLE = str.maketrans({k: chr(v) for k, v in _TO_BOLD_SANS_MAP.items()})
+
+_FROM_BOLD_SANS_MAP: dict[int, str] = {}
+
+# Mathematical Sans-Serif Bold (A-Z: U+1D5D4..U+1D5ED, a-z: U+1D5EE..U+1D607, 0-9: U+1D7EC..U+1D7F5)
+for i, c in enumerate("ABCDEFGHIJKLMNOPQRSTUVWXYZ"):
+    _FROM_BOLD_SANS_MAP[0x1D5D4 + i] = c
+for i, c in enumerate("abcdefghijklmnopqrstuvwxyz"):
+    _FROM_BOLD_SANS_MAP[0x1D5EE + i] = c
+for i, c in enumerate("0123456789"):
+    _FROM_BOLD_SANS_MAP[0x1D7EC + i] = c
+
+# Mathematical Bold Serif (A-Z: U+1D400..U+1D419, a-z: U+1D41A..U+1D433, 0-9: U+1D7CE..U+1D7D7)
+for i, c in enumerate("ABCDEFGHIJKLMNOPQRSTUVWXYZ"):
+    _FROM_BOLD_SANS_MAP[0x1D400 + i] = c
+for i, c in enumerate("abcdefghijklmnopqrstuvwxyz"):
+    _FROM_BOLD_SANS_MAP[0x1D41A + i] = c
+for i, c in enumerate("0123456789"):
+    _FROM_BOLD_SANS_MAP[0x1D7CE + i] = c
+
+# Mathematical Sans-Serif Regular
+for i, c in enumerate("ABCDEFGHIJKLMNOPQRSTUVWXYZ"):
+    _FROM_BOLD_SANS_MAP[0x1D5A0 + i] = c
+for i, c in enumerate("abcdefghijklmnopqrstuvwxyz"):
+    _FROM_BOLD_SANS_MAP[0x1D5BA + i] = c
+for i, c in enumerate("0123456789"):
+    _FROM_BOLD_SANS_MAP[0x1D7E2 + i] = c
+
+# Mathematical Sans-Serif Italic
+for i, c in enumerate("ABCDEFGHIJKLMNOPQRSTUVWXYZ"):
+    _FROM_BOLD_SANS_MAP[0x1D608 + i] = c
+for i, c in enumerate("abcdefghijklmnopqrstuvwxyz"):
+    _FROM_BOLD_SANS_MAP[0x1D622 + i] = c
+
+# Mathematical Sans-Serif Bold Italic
+for i, c in enumerate("ABCDEFGHIJKLMNOPQRSTUVWXYZ"):
+    _FROM_BOLD_SANS_MAP[0x1D63C + i] = c
+for i, c in enumerate("abcdefghijklmnopqrstuvwxyz"):
+    _FROM_BOLD_SANS_MAP[0x1D656 + i] = c
+
+# Mathematical Monospace
+for i, c in enumerate("ABCDEFGHIJKLMNOPQRSTUVWXYZ"):
+    _FROM_BOLD_SANS_MAP[0x1D670 + i] = c
+for i, c in enumerate("abcdefghijklmnopqrstuvwxyz"):
+    _FROM_BOLD_SANS_MAP[0x1D68A + i] = c
+for i, c in enumerate("0123456789"):
+    _FROM_BOLD_SANS_MAP[0x1D7F6 + i] = c
+
+_FROM_BOLD_SANS_TABLE = str.maketrans(_FROM_BOLD_SANS_MAP)
+
+
+def to_bold_sans(text: str) -> str:
+    """
+    Converts standard ASCII letters (A-Z, a-z) and numbers (0-9) to Mathematical
+    Sans-Serif Bold Unicode (e.g., A -> 𝗔, a -> 𝗮, 0 -> 𝟬).
+    Keeps emojis, spaces, and punctuation untouched.
+
+    Args:
+        text: Plain ASCII or mixed text string.
+
+    Returns:
+        Formatted string with alphanumeric characters converted to Mathematical Sans-Serif Bold.
+    """
+    if not isinstance(text, str) or not text:
+        return text if isinstance(text, str) else ""
+    return text.translate(_TO_BOLD_SANS_TABLE)
+
+
+def from_bold_sans(text: str) -> str:
+    """
+    Converts Mathematical Sans-Serif Bold (and Serif Bold) characters back to standard
+    ASCII characters (e.g., 𝗔 -> A, 𝗮 -> a, 𝟬 -> 0).
+
+    Args:
+        text: Styled Unicode text string.
+
+    Returns:
+        Cleaned ASCII string.
+    """
+    if not isinstance(text, str) or not text:
+        return text if isinstance(text, str) else ""
+    return text.translate(_FROM_BOLD_SANS_TABLE)
+
+
+def normalize_user_input(text: str) -> str:
+    """
+    Normalizes user input by converting Unicode bold/sans fonts to standard ASCII,
+    stripping leading/trailing whitespace, and collapsing redundant internal whitespace.
+
+    Args:
+        text: Raw user input text.
+
+    Returns:
+        Normalized ASCII string.
+    """
+    if not isinstance(text, str) or not text:
+        return ""
+    converted = from_bold_sans(text)
+    return " ".join(converted.split())
+
+
 def is_cancellation_text(text: str) -> bool:
     """
     Checks whether a user's input text represents a cancellation command or intent,
@@ -307,19 +439,19 @@ def is_cancellation_text(text: str) -> bool:
     if not isinstance(text, str):
         return False
 
-    cleaned = text.strip().lower()
-    if not cleaned:
+    norm = normalize_user_input(text).lower()
+    if not norm:
         return False
 
-    if cleaned in ALL_CANCELLATION_AND_NAV_TEXTS:
+    if norm in ALL_CANCELLATION_AND_NAV_TEXTS:
         return True
 
     # Handle dynamic button variants and prefixes
-    if cleaned.startswith("⚙️ toggle maintenance"):
+    if norm.startswith("⚙️ toggle maintenance"):
         return True
-    if cleaned.startswith("❌ cancel delete"):
+    if norm.startswith("❌ cancel delete"):
         return True
-    if cleaned.startswith("❌ cancel"):
+    if norm.startswith("❌ cancel"):
         return True
 
     return False
@@ -338,15 +470,15 @@ def is_menu_navigation_text(text: str) -> bool:
     if not isinstance(text, str):
         return False
 
-    cleaned = text.strip().lower()
-    if not cleaned:
+    norm = normalize_user_input(text).lower()
+    if not norm:
         return False
 
-    if cleaned in MENU_NAVIGATION_BUTTONS:
+    if norm in MENU_NAVIGATION_BUTTONS:
         return True
 
     # Handle dynamic button variants and prefixes
-    if cleaned.startswith("⚙️ toggle maintenance"):
+    if norm.startswith("⚙️ toggle maintenance"):
         return True
 
     return False
@@ -360,6 +492,9 @@ __all__ = [
     "extract_and_validate_zip",
     "is_cancellation_text",
     "is_menu_navigation_text",
+    "to_bold_sans",
+    "from_bold_sans",
+    "normalize_user_input",
     "CANCELLATION_PHRASES",
     "NAVIGATION_BUTTONS",
     "SUB_MENU_BUTTONS",
