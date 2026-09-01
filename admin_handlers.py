@@ -155,14 +155,19 @@ def get_admin_users_reply_keyboard(users: list, page: int = 0) -> ReplyKeyboardM
     keyboard.append([KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻 ⇋")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-def get_admin_user_detail_keyboard(target_uid: int, is_banned: bool) -> ReplyKeyboardMarkup:
+def get_admin_user_detail_keyboard(target_uid: int, is_banned: bool, user_bots: list = None) -> ReplyKeyboardMarkup:
     ban_label = "𝗨𝗻𝗯𝗮𝗻 𝗨𝘀𝗲𝗿" if is_banned else "𝗕𝗮𝗻 𝗨𝘀𝗲𝗿"
     keyboard = [
         [KeyboardButton(f"⇋ {ban_label} [UID: {target_uid}] ⇋")],
         [KeyboardButton(f"⇋ +1 𝗦𝗹𝗼𝘁 [UID: {target_uid}] ⇋"), KeyboardButton(f"⇋ -1 𝗦𝗹𝗼𝘁 [UID: {target_uid}] ⇋")],
-        [KeyboardButton(f"⇋ 𝗦𝗲𝘁 𝗖𝘂𝘀𝘁𝗼𝗺 𝗦𝗹𝗼𝘁𝘀 [UID: {target_uid}] ⇋")],
-        [KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗨𝘀𝗲𝗿𝘀 ⇋"), KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻 ⇋")]
+        [KeyboardButton(f"⇋ 𝗦𝗲𝘁 𝗖𝘂𝘀𝘁𝗼𝗺 𝗦𝗹𝗼𝘁𝘀 [UID: {target_uid}] ⇋")]
     ]
+    if user_bots:
+        for b in user_bots[:5]:
+            b_name = b.get('bot_name', 'Bot')[:15]
+            b_id = b.get('bot_id', '')
+            keyboard.append([KeyboardButton(f"⇋ {b_name} [#{b_id}] ⇋")])
+    keyboard.append([KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗨𝘀𝗲𝗿𝘀 ⇋"), KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻 ⇋")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_admin_bots_reply_keyboard(bots: list, page: int = 0) -> ReplyKeyboardMarkup:
@@ -192,7 +197,8 @@ def get_admin_bot_detail_keyboard(bot_id: str, status: str) -> ReplyKeyboardMark
     state_label = "𝗦𝘁𝗼𝗽" if status == "RUNNING" else "𝗙𝗼𝗿𝗰𝗲 𝗦𝘁𝗮𝗿𝘁"
     keyboard = [
         [KeyboardButton(f"⇋ {state_label} [#{bot_id}] ⇋"), KeyboardButton(f"⇋ 𝗥𝗲𝘀𝘁𝗮𝗿𝘁 [#{bot_id}] ⇋")],
-        [KeyboardButton(f"⇋ 𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀 [#{bot_id}] ⇋"), KeyboardButton(f"⇋ 𝗙𝗼𝗿𝗰𝗲 𝗗𝗲𝗹𝗲𝘁𝗲 [#{bot_id}] ⇋")],
+        [KeyboardButton(f"⇋ 𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀 [#{bot_id}] ⇋"), KeyboardButton(f"⇋ 𝗚𝗲𝘁 𝗕𝗼𝘁 𝗖𝗼𝗱𝗲 [#{bot_id}] ⇋")],
+        [KeyboardButton(f"⇋ 𝗙𝗼𝗿𝗰𝗲 𝗗𝗲𝗹𝗲𝘁𝗲 [#{bot_id}] ⇋")],
         [KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗹𝗹 𝗕𝗼𝘁𝘀 ⇋"), KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻 ⇋")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -383,7 +389,7 @@ async def admin_user_detail_handler(update: Update, context: ContextTypes.DEFAUL
         "</blockquote>\n\n"
         "👇 <i>Choose action below:</i>"
     )
-    reply_markup = get_admin_user_detail_keyboard(user_id, is_banned)
+    reply_markup = get_admin_user_detail_keyboard(user_id, is_banned, user_bots)
     await _send_admin_msg(update, text, reply_markup=reply_markup, context=context)
 
 async def admin_user_action_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str = None, target_uid: int = None):
@@ -562,6 +568,8 @@ async def admin_bot_action_handler(update: Update, context: ContextTypes.DEFAULT
             action = "restart"
         elif "View Logs" in text_input or "📜" in text_input:
             action = "logs"
+        elif "Get Bot Code" in text_input or "Download Code" in text_input or "View Code" in text_input or "Get Code" in text_input or "Export Code" in text_input or "Code" in text_input:
+            action = "code"
         elif "Force Delete" in text_input or "🗑️" in text_input:
             action = "del"
 
@@ -610,6 +618,9 @@ async def admin_bot_action_handler(update: Update, context: ContextTypes.DEFAULT
         ], resize_keyboard=True)
         await _send_admin_msg(update, text, reply_markup=reply_markup, context=context)
 
+    elif action == "code":
+        await admin_bot_get_code_handler(update, context, bot_id)
+
     elif action == "del":
         await bot_manager.stop_bot(bot_id)
         bot_data = database.get_bot(bot_id)
@@ -625,6 +636,85 @@ async def admin_bot_action_handler(update: Update, context: ContextTypes.DEFAULT
             context=context
         )
         await admin_bots_list_handler(update, context, 0)
+
+async def admin_bot_get_code_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_id: str):
+    """Allows Master Admin to inspect and download any user's hosted bot source code & zip archive."""
+    admin_id = update.effective_user.id
+    if not is_admin(admin_id):
+        await _send_admin_msg(update, "⛔ <b>Access Denied.</b>", context=context)
+        return
+
+    bot_data = database.get_bot(bot_id)
+    if not bot_data:
+        await _send_admin_msg(update, f"⚠️ <b>Bot <code>#{html.escape(bot_id)}</code> not found in database.</b>", context=context)
+        return
+
+    owner_id = bot_data['user_id']
+    bot_name = bot_data.get('bot_name', 'bot')
+    clean_name = re.sub(r'[^a-zA-Z0-9_-]', '_', bot_name)
+    script_path = bot_data.get('script_path') or os.path.join(DATA_DIR, "bots", f"{owner_id}_{bot_id}", "main.py")
+
+    await _send_admin_msg(update, f"⏳ <b>Extracting source files for <code>{html.escape(bot_name)} [#{bot_id}]</code>...</b>", context=context)
+
+    sent_any = False
+
+    # 1. Send single main.py if present
+    if os.path.exists(script_path) and os.path.isfile(script_path):
+        try:
+            with open(script_path, "rb") as f:
+                caption = (
+                    f"<b>📁 BOT SOURCE CODE FILE</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"🤖 <b>Bot:</b> {html.escape(bot_name)} (<code>#{bot_id}</code>)\n"
+                    f"👤 <b>Owner UID:</b> <code>{owner_id}</code>\n"
+                    f"📄 <b>File:</b> <code>main.py</code>"
+                )
+                sent_doc = await context.bot.send_document(
+                    chat_id=admin_id,
+                    document=f,
+                    filename=f"{clean_name}_{bot_id}_main.py",
+                    caption=caption,
+                    parse_mode="HTML"
+                )
+                if sent_doc:
+                    database.record_chat_message(admin_id, sent_doc.message_id)
+                    sent_any = True
+        except Exception as e:
+            logger.error(f"Error sending main.py to admin: {e}")
+
+    # 2. Package and send complete workspace zip
+    zip_path = bot_manager.create_bot_backup_zip(bot_id, owner_id)
+    if zip_path and os.path.exists(zip_path):
+        try:
+            with open(zip_path, "rb") as zf:
+                caption = (
+                    f"<b>💾 COMPLETE BOT WORKSPACE ARCHIVE</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"🤖 <b>Bot:</b> {html.escape(bot_name)} (<code>#{bot_id}</code>)\n"
+                    f"👤 <b>Owner UID:</b> <code>{owner_id}</code>\n"
+                    f"📦 <b>Archive:</b> Complete project workspace directory"
+                )
+                sent_doc = await context.bot.send_document(
+                    chat_id=admin_id,
+                    document=zf,
+                    filename=f"{clean_name}_{bot_id}_workspace.zip",
+                    caption=caption,
+                    parse_mode="HTML"
+                )
+                if sent_doc:
+                    database.record_chat_message(admin_id, sent_doc.message_id)
+                    sent_any = True
+        except Exception as e:
+            logger.error(f"Error sending workspace zip to admin: {e}")
+
+    if not sent_any:
+        await _send_admin_msg(
+            update,
+            f"❌ <b>Source Code Not Found:</b> No files found on disk for bot <code>#{bot_id}</code>.",
+            context=context
+        )
+
+    await admin_bot_detail_handler(update, context, bot_id)
 
 async def check_channel_bot_admin_status(bot, channel_id: str) -> tuple[bool, str, str]:
     """
@@ -1407,6 +1497,17 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             return True
         elif "View Logs" in stripped or "📜 View Logs" in stripped or stripped.startswith("Logs"):
             await admin_bot_action_handler(update, context, action="logs", bot_id=bot_id)
+            return True
+        elif (
+            "Get Bot Code" in stripped
+            or "Download Code" in stripped
+            or "View Code" in stripped
+            or "Get Code" in stripped
+            or "Export Code" in stripped
+            or stripped.startswith("Code")
+            or "𝗚𝗲𝘁 𝗕𝗼𝘁 𝗖𝗼𝗱𝗲" in clean_text
+        ):
+            await admin_bot_action_handler(update, context, action="code", bot_id=bot_id)
             return True
         elif "Force Delete" in stripped or "🗑️ Force Delete" in stripped or stripped.startswith("Delete"):
             await admin_bot_action_handler(update, context, action="del", bot_id=bot_id)
