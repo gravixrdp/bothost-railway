@@ -178,41 +178,44 @@ async def check_user_subscription(bot, user_id: int) -> tuple[bool, list]:
         raw_cid = ch.get("channel_id") if isinstance(ch, dict) else ch["channel_id"]
         cid_str = str(raw_cid).strip()
 
-        # If channel_id is an invite link (https://t.me/+... or contains '+')
-        if "+" in cid_str or "joinchat" in cid_str:
-            logger.info(f"Invite link channel {cid_str} cannot be verified via get_chat_member; skipping enforcement.")
-            continue
+        # Check if this channel has a verifiable Telegram identifier (@username or numeric ID)
+        is_verifiable = False
+        target_chat = None
 
-        # Format channel ID for Telegram API lookup
-        if not cid_str.startswith("@") and not cid_str.startswith("-100"):
-            if cid_str.startswith("-") and cid_str[1:].isdigit():
-                pass
-            elif cid_str.isdigit():
-                cid_str = f"-100{cid_str}"
-            elif "t.me/" in cid_str:
-                slug = cid_str.split("t.me/")[-1].strip().lstrip("@")
-                if not slug.startswith("+") and not slug.startswith("joinchat/") and "/" not in slug:
-                    cid_str = f"@{slug}"
-                else:
-                    logger.info(f"Invite link channel {cid_str} skipped from Bot API check.")
-                    continue
-            elif not cid_str.startswith("+"):
-                cid_str = f"@{cid_str}"
+        if cid_str.startswith("-100") or (cid_str.startswith("-") and cid_str[1:].isdigit()):
+            is_verifiable = True
+            target_chat = int(cid_str)
+        elif cid_str.isdigit():
+            is_verifiable = True
+            target_chat = int(f"-100{cid_str}")
+        elif cid_str.startswith("@"):
+            is_verifiable = True
+            target_chat = cid_str
+        elif "t.me/" in cid_str:
+            slug = cid_str.split("t.me/")[-1].strip().lstrip("@")
+            if not slug.startswith("+") and not slug.startswith("joinchat/") and "/" not in slug and slug:
+                is_verifiable = True
+                target_chat = f"@{slug}"
 
-        try:
+        if is_verifiable and target_chat:
             try:
-                cid_param = int(cid_str)
-            except ValueError:
-                cid_param = cid_str
-
-            member = await bot.get_chat_member(chat_id=cid_param, user_id=user_id)
-            if member.status in valid_statuses:
-                continue
-            else:
-                unjoined.append(ch)
-        except Exception as e:
-            logger.info(f"FSub verification check for user {user_id} in {cid_str}: {e}")
-            unjoined.append(ch)
+                member = await bot.get_chat_member(chat_id=target_chat, user_id=user_id)
+                if member.status in valid_statuses:
+                    continue
+                else:
+                    unjoined.append(ch)
+            except Exception as e:
+                err_text = str(e).lower()
+                logger.info(f"FSub check for user {user_id} in {target_chat}: {e}")
+                if "chat not found" in err_text or "bot is not a member" in err_text or "chat_admin_required" in err_text or "not enough rights" in err_text:
+                    logger.warning(f"Chat {target_chat} not accessible by bot. Ensure bot is admin in channel.")
+                    continue
+                else:
+                    unjoined.append(ch)
+        else:
+            # Channel is an invite link (e.g. https://t.me/+...)
+            # It is displayed on the join keyboard for users, but cannot be verified via get_chat_member directly
+            pass
 
     return len(unjoined) == 0, unjoined
 
