@@ -38,17 +38,44 @@ def make_progress_bar(percent: float, length: int = 10) -> str:
     filled = int(round((max(0.0, min(100.0, percent)) / 100.0) * length))
     return "▰" * filled + "▱" * (length - filled)
 
-async def _send_admin_msg(update: Update, text: str, reply_markup=None):
-    """Helper to send reply keyboard response cleanly with HTML formatting."""
+async def _send_admin_msg(update: Update, text: str, reply_markup=None, context: ContextTypes.DEFAULT_TYPE = None):
+    """Helper to send reply keyboard response cleanly with HTML formatting and auto-clean old messages."""
+    user_id = update.effective_user.id if update.effective_user else None
+    incoming_msg = update.effective_message
+
+    if context and user_id and incoming_msg:
+        history = context.user_data.setdefault("chat_msg_history", [])
+        if incoming_msg.message_id not in history:
+            history.append(incoming_msg.message_id)
+        while len(history) > 2:
+            old_id = history.pop(0)
+            try:
+                await context.bot.delete_message(chat_id=user_id, message_id=old_id)
+            except Exception:
+                pass
+
+    sent = None
     if update.message:
-        await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="HTML")
+        sent = await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="HTML")
     elif update.callback_query:
         try:
             await update.callback_query.answer()
         except Exception:
             pass
         if update.callback_query.message:
-            await update.callback_query.message.reply_text(text, reply_markup=reply_markup, parse_mode="HTML")
+            sent = await update.callback_query.message.reply_text(text, reply_markup=reply_markup, parse_mode="HTML")
+
+    if context and user_id and sent:
+        history = context.user_data.setdefault("chat_msg_history", [])
+        if sent.message_id not in history:
+            history.append(sent.message_id)
+        while len(history) > 2:
+            old_id = history.pop(0)
+            try:
+                await context.bot.delete_message(chat_id=user_id, message_id=old_id)
+            except Exception:
+                pass
+    return sent
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 1. Admin Keyboard Generators
@@ -87,11 +114,12 @@ async def resolve_user_profile(bot, u: dict) -> dict:
     return u
 
 def get_admin_reply_keyboard(maint_status: str) -> ReplyKeyboardMarkup:
+    clean_status = re.sub(r"[^\w\s\(\)]", "", str(maint_status)).strip() if maint_status else "OFF"
     keyboard = [
-        [KeyboardButton("📊 𝗦𝘆𝘀𝘁𝗲𝗺 𝗦𝘁𝗮𝘁𝘀"), KeyboardButton("👥 𝗨𝘀𝗲𝗿 𝗠𝗮𝗻𝗮𝗴𝗲𝗿")],
-        [KeyboardButton("🤖 𝗔𝗹𝗹 𝗛𝗼𝘀𝘁𝗲𝗱 𝗕𝗼𝘁𝘀"), KeyboardButton("📢 𝗙𝗼𝗿𝗰𝗲-𝗦𝘂𝗯 𝗖𝗵𝗮𝗻𝗻𝗲𝗹𝘀")],
-        [KeyboardButton("📢 𝗕𝗿𝗼𝗮𝗱𝗰𝗮𝘀𝘁"), KeyboardButton(f"⚙️ 𝗧𝗼𝗴𝗴𝗹𝗲 𝗠𝗮𝗶𝗻𝘁𝗲𝗻𝗮𝗻𝗰𝗲 ({maint_status})")],
-        [KeyboardButton("🔄 𝗥𝗲𝗳𝗿𝗲𝘀𝗵 𝗔𝗱𝗺𝗶𝗻"), KeyboardButton("🏠 𝗘𝘅𝗶𝘁 𝗔𝗱𝗺𝗶𝗻")]
+        [KeyboardButton("⇋ 𝗦𝘆𝘀𝘁𝗲𝗺 𝗦𝘁𝗮𝘁𝘀 ⇋"), KeyboardButton("⇋ 𝗨𝘀𝗲𝗿 𝗠𝗮𝗻𝗮𝗴𝗲𝗿 ⇋")],
+        [KeyboardButton("⇋ 𝗔𝗹𝗹 𝗛𝗼𝘀𝘁𝗲𝗱 𝗕𝗼𝘁𝘀 ⇋"), KeyboardButton("⇋ 𝗙𝗼𝗿𝗰𝗲-𝗦𝘂𝗯 𝗖𝗵𝗮𝗻𝗻𝗲𝗹𝘀 ⇋")],
+        [KeyboardButton("⇋ 𝗕𝗿𝗼𝗮𝗱𝗰𝗮𝘀𝘁 ⇋"), KeyboardButton(f"⇋ 𝗧𝗼𝗴𝗴𝗹𝗲 𝗠𝗮𝗶𝗻𝘁𝗲𝗻𝗮𝗻𝗰𝗲 ({clean_status}) ⇋")],
+        [KeyboardButton("⇋ 𝗥𝗲𝗳𝗿𝗲𝘀𝗵 𝗔𝗱𝗺𝗶𝗻 ⇋"), KeyboardButton("⇋ 𝗘𝘅𝗶𝘁 𝗔𝗱𝗺𝗶𝗻 ⇋")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -104,26 +132,26 @@ def get_admin_users_reply_keyboard(users: list, page: int = 0) -> ReplyKeyboardM
     keyboard = []
     for u in curr_users:
         display_name = get_user_display_name(u)
-        keyboard.append([KeyboardButton(f"👤 {display_name} (UID: {u['user_id']})")])
+        keyboard.append([KeyboardButton(f"⇋ {display_name} [UID: {u['user_id']}] ⇋")])
 
     nav_row = []
     if curr_page > 0:
-        nav_row.append(KeyboardButton("⬅️ Prev Users"))
+        nav_row.append(KeyboardButton("⇋ 𝗣𝗿𝗲𝘃 𝗨𝘀𝗲𝗿𝘀 ⇋"))
     if curr_page < total_pages - 1:
-        nav_row.append(KeyboardButton("Next Users ➡️"))
+        nav_row.append(KeyboardButton("⇋ 𝗡𝗲𝘅𝘁 𝗨𝘀𝗲𝗿𝘀 ⇋"))
     if nav_row:
         keyboard.append(nav_row)
 
-    keyboard.append([KeyboardButton("🔙 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻")])
+    keyboard.append([KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻 ⇋")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_admin_user_detail_keyboard(target_uid: int, is_banned: bool) -> ReplyKeyboardMarkup:
-    ban_label = "🔓 𝗨𝗻𝗯𝗮𝗻 𝗨𝘀𝗲𝗿" if is_banned else "🚫 𝗕𝗮𝗻 𝗨𝘀𝗲𝗿"
+    ban_label = "𝗨𝗻𝗯𝗮𝗻 𝗨𝘀𝗲𝗿" if is_banned else "𝗕𝗮𝗻 𝗨𝘀𝗲𝗿"
     keyboard = [
-        [KeyboardButton(f"{ban_label} [UID: {target_uid}]")],
-        [KeyboardButton(f"➕ +1 𝗦𝗹𝗼𝘁 [UID: {target_uid}]"), KeyboardButton(f"➖ -1 𝗦𝗹𝗼𝘁 [UID: {target_uid}]")],
-        [KeyboardButton(f"✏️ 𝗦𝗲𝘁 𝗖𝘂𝘀𝘁𝗼𝗺 𝗦𝗹𝗼𝘁𝘀 [UID: {target_uid}]")],
-        [KeyboardButton("🔙 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗨𝘀𝗲𝗿𝘀"), KeyboardButton("🏠 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻")]
+        [KeyboardButton(f"⇋ {ban_label} [UID: {target_uid}] ⇋")],
+        [KeyboardButton(f"⇋ +1 𝗦𝗹𝗼𝘁 [UID: {target_uid}] ⇋"), KeyboardButton(f"⇋ -1 𝗦𝗹𝗼𝘁 [UID: {target_uid}] ⇋")],
+        [KeyboardButton(f"⇋ 𝗦𝗲𝘁 𝗖𝘂𝘀𝘁𝗼𝗺 𝗦𝗹𝗼𝘁𝘀 [UID: {target_uid}] ⇋")],
+        [KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗨𝘀𝗲𝗿𝘀 ⇋"), KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻 ⇋")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -135,26 +163,27 @@ def get_admin_bots_reply_keyboard(bots: list, page: int = 0) -> ReplyKeyboardMar
 
     keyboard = []
     for b in curr_bots:
-        status_emoji = "🟢" if b.get('status') == "RUNNING" else ("🔴" if b.get('status') in ["FAILED", "CRASHED"] else "⚪")
-        keyboard.append([KeyboardButton(f"{status_emoji} {b.get('bot_name', 'Bot')} [#{b.get('bot_id', '')}]")])
+        b_name = b.get('bot_name', 'Bot')
+        b_id = b.get('bot_id', '')
+        keyboard.append([KeyboardButton(f"⇋ {b_name} [#{b_id}] ⇋")])
 
     nav_row = []
     if curr_page > 0:
-        nav_row.append(KeyboardButton("⬅️ Prev All Bots"))
+        nav_row.append(KeyboardButton("⇋ 𝗣𝗿𝗲𝘃 𝗔𝗹𝗹 𝗕𝗼𝘁𝘀 ⇋"))
     if curr_page < total_pages - 1:
-        nav_row.append(KeyboardButton("Next All Bots ➡️"))
+        nav_row.append(KeyboardButton("⇋ 𝗡𝗲𝘅𝘁 𝗔𝗹𝗹 𝗕𝗼𝘁𝘀 ⇋"))
     if nav_row:
         keyboard.append(nav_row)
 
-    keyboard.append([KeyboardButton("🔙 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻")])
+    keyboard.append([KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻 ⇋")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_admin_bot_detail_keyboard(bot_id: str, status: str) -> ReplyKeyboardMarkup:
-    state_label = "⏹️ 𝗦𝘁𝗼𝗽" if status == "RUNNING" else "▶️ 𝗙𝗼𝗿𝗰𝗲 𝗦𝘁𝗮𝗿𝘁"
+    state_label = "𝗦𝘁𝗼𝗽" if status == "RUNNING" else "𝗙𝗼𝗿𝗰𝗲 𝗦𝘁𝗮𝗿𝘁"
     keyboard = [
-        [KeyboardButton(f"{state_label} [#{bot_id}]"), KeyboardButton(f"🔄 𝗥𝗲𝘀𝘁𝗮𝗿𝘁 [#{bot_id}]")],
-        [KeyboardButton(f"📜 𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀 [#{bot_id}]"), KeyboardButton(f"🗑️ 𝗙𝗼𝗿𝗰𝗲 𝗗𝗲𝗹𝗲𝘁𝗲 [#{bot_id}]")],
-        [KeyboardButton("🔙 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗹𝗹 𝗕𝗼𝘁𝘀"), KeyboardButton("🏠 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻")]
+        [KeyboardButton(f"⇋ {state_label} [#{bot_id}] ⇋"), KeyboardButton(f"⇋ 𝗥𝗲𝘀𝘁𝗮𝗿𝘁 [#{bot_id}] ⇋")],
+        [KeyboardButton(f"⇋ 𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀 [#{bot_id}] ⇋"), KeyboardButton(f"⇋ 𝗙𝗼𝗿𝗰𝗲 𝗗𝗲𝗹𝗲𝘁𝗲 [#{bot_id}] ⇋")],
+        [KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗹𝗹 𝗕𝗼𝘁𝘀 ⇋"), KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻 ⇋")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -168,18 +197,18 @@ def get_admin_fsub_reply_keyboard(channels: list, page: int = 0) -> ReplyKeyboar
     for ch in curr_channels:
         title = ch.get('title', 'Channel')[:15]
         cid = ch.get('channel_id', '')
-        keyboard.append([KeyboardButton(f"🗑️ Remove {title} [{cid}]")])
+        keyboard.append([KeyboardButton(f"⇋ 𝗥𝗲𝗺𝗼𝘃𝗲 {title} [{cid}] ⇋")])
 
     nav_row = []
     if curr_page > 0:
-        nav_row.append(KeyboardButton("⬅️ Prev FSub"))
+        nav_row.append(KeyboardButton("⇋ 𝗣𝗿𝗲𝘃 𝗙𝗦𝘂𝗯 ⇋"))
     if curr_page < total_pages - 1:
-        nav_row.append(KeyboardButton("Next FSub ➡️"))
+        nav_row.append(KeyboardButton("⇋ 𝗡𝗲𝘅𝘁 𝗙𝗦𝘂𝗯 ⇋"))
     if nav_row:
         keyboard.append(nav_row)
 
-    keyboard.append([KeyboardButton("➕ 𝗔𝗱𝗱 𝗙𝗼𝗿𝗰𝗲-𝗦𝘂𝗯 𝗖𝗵𝗮𝗻𝗻𝗲𝗹")])
-    keyboard.append([KeyboardButton("🔙 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻")])
+    keyboard.append([KeyboardButton("⇋ 𝗔𝗱𝗱 𝗙𝗼𝗿𝗰𝗲-𝗦𝘂𝗯 𝗖𝗵𝗮𝗻𝗻𝗲𝗹 ⇋")])
+    keyboard.append([KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻 ⇋")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 
@@ -263,7 +292,7 @@ async def admin_stats_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         "</blockquote>\n\n"
         "💡 <i>Telemetry metrics sampled in real-time from Gravix Dedicated Cloud Infrastructure.</i>"
     )
-    reply_markup = ReplyKeyboardMarkup([[KeyboardButton("🔙 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻")]], resize_keyboard=True)
+    reply_markup = ReplyKeyboardMarkup([[KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻 ⇋")]], resize_keyboard=True)
     await _send_admin_msg(update, text, reply_markup=reply_markup)
 
 async def admin_users_list_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
@@ -318,9 +347,9 @@ async def admin_user_detail_handler(update: Update, context: ContextTypes.DEFAUL
 
     if user_id is None and update.message and update.message.text:
         clean_text = normalize_user_input(update.message.text)
-        m = re.search(r"\(UID:\s*(\d+)\)", clean_text)
+        m = re.search(r"(?:\[UID:\s*(\d+)\]|\(UID:\s*(\d+)\))", clean_text)
         if m:
-            user_id = int(m.group(1))
+            user_id = int(m.group(1) or m.group(2))
 
     if user_id is None:
         await admin_users_list_handler(update, context, 0)
@@ -369,9 +398,9 @@ async def admin_user_action_handler(update: Update, context: ContextTypes.DEFAUL
     raw_text = update.message.text if (update.message and update.message.text) else ""
     text_input = normalize_user_input(raw_text)
     if target_uid is None:
-        m = re.search(r"\[UID:\s*(\d+)\]", text_input)
+        m = re.search(r"(?:\[UID:\s*(\d+)\]|\(UID:\s*(\d+)\))", text_input)
         if m:
-            target_uid = int(m.group(1))
+            target_uid = int(m.group(1) or m.group(2))
 
     if target_uid is None:
         await admin_users_list_handler(update, context, 0)
@@ -571,8 +600,8 @@ async def admin_bot_action_handler(update: Update, context: ContextTypes.DEFAULT
             f"<pre><code>{html.escape(log_snippet)}</code></pre>"
         )
         reply_markup = ReplyKeyboardMarkup([
-            [KeyboardButton(f"📜 𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀 [#{bot_id}]"), KeyboardButton(f"🔄 𝗥𝗲𝘀𝘁𝗮𝗿𝘁 [#{bot_id}]")],
-            [KeyboardButton("🔙 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗹𝗹 𝗕𝗼𝘁𝘀"), KeyboardButton("🏠 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻")]
+            [KeyboardButton(f"⇋ 𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀 [#{bot_id}] ⇋"), KeyboardButton(f"⇋ 𝗥𝗲𝘀𝘁𝗮𝗿𝘁 [#{bot_id}] ⇋")],
+            [KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗹𝗹 𝗕𝗼𝘁𝘀 ⇋"), KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻 ⇋")]
         ], resize_keyboard=True)
         await _send_admin_msg(update, text, reply_markup=reply_markup)
 
@@ -684,7 +713,7 @@ async def admin_broadcast_prompt_handler(update: Update, context: ContextTypes.D
         "</blockquote>\n\n"
         "💡 <i>Tap Back to Admin below to return to the central console.</i>"
     )
-    reply_markup = ReplyKeyboardMarkup([[KeyboardButton("🔙 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻")]], resize_keyboard=True)
+    reply_markup = ReplyKeyboardMarkup([[KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻 ⇋")]], resize_keyboard=True)
     await _send_admin_msg(update, text, reply_markup=reply_markup)
 
 async def admin_exit_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -693,7 +722,7 @@ async def admin_exit_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         from user_handlers import get_main_reply_keyboard
         reply_kb = get_main_reply_keyboard(user_id)
     except Exception:
-        reply_kb = ReplyKeyboardMarkup([[KeyboardButton("🤖 My Hosted Bots"), KeyboardButton("➕ Host New Bot")]], resize_keyboard=True)
+        reply_kb = ReplyKeyboardMarkup([[KeyboardButton("⇋ 𝗠𝘆 𝗛𝗼𝘀𝘁𝗲𝗱 𝗕𝗼𝘁𝘀 ⇋"), KeyboardButton("⇋ 𝗛𝗼𝘀𝘁 𝗡𝗲𝘄 𝗕𝗼𝘁 ⇋")]], resize_keyboard=True)
 
     text = (
         "<b>🏠 EXITED ADMIN CONSOLE</b>\n"
@@ -756,7 +785,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 3. Force-Sub Add Channel Conversation Flow
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-FSUB_CANCEL_KEYBOARD = ReplyKeyboardMarkup([[KeyboardButton("❌ Cancel")]], resize_keyboard=True)
+FSUB_CANCEL_KEYBOARD = ReplyKeyboardMarkup([[KeyboardButton("⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋")]], resize_keyboard=True)
 
 async def admin_fsub_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -775,7 +804,7 @@ async def admin_fsub_add_start(update: Update, context: ContextTypes.DEFAULT_TYP
         "• Private Channel: <code>-1001234567890</code>\n\n"
         "⚠️ <i>Make sure the master bot is added as an Administrator in this channel.</i>"
         "</blockquote>\n\n"
-        "<i>(Send Channel ID or tap ❌ Cancel below to abort)</i>"
+        "<i>(Send Channel ID or tap ⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋ below to abort)</i>"
     )
     await _send_admin_msg(update, text, reply_markup=FSUB_CANCEL_KEYBOARD)
     return A_FSUB_ID
@@ -809,7 +838,7 @@ async def admin_fsub_get_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "<blockquote>"
             "Please provide a valid public handle (e.g. <code>@GravixRDP</code>) or numeric private channel ID (e.g. <code>-1001234567890</code>)."
             "</blockquote>\n\n"
-            "<i>(Send Channel ID or tap ❌ Cancel to abort)</i>"
+            "<i>(Send Channel ID or tap ⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋ to abort)</i>"
         )
         await update.message.reply_text(text_resp, reply_markup=FSUB_CANCEL_KEYBOARD, parse_mode="HTML")
         return A_FSUB_ID
@@ -824,7 +853,7 @@ async def admin_fsub_get_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Please send a display <b>Title</b> for this channel:\n"
         "<i>(Example: Gravix Official Channel)</i>"
         "</blockquote>\n\n"
-        "<i>(Send Title or tap ❌ Cancel to abort)</i>"
+        "<i>(Send Title or tap ⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋ to abort)</i>"
     )
     await update.message.reply_text(text_resp, reply_markup=FSUB_CANCEL_KEYBOARD, parse_mode="HTML")
     return A_FSUB_TITLE
@@ -852,7 +881,7 @@ async def admin_fsub_get_title(update: Update, context: ContextTypes.DEFAULT_TYP
             "<blockquote>"
             "Please enter a channel title between 2 and 64 characters."
             "</blockquote>\n\n"
-            "<i>(Send Title or tap ❌ Cancel to abort)</i>"
+            "<i>(Send Title or tap ⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋ to abort)</i>"
         )
         await update.message.reply_text(text_resp, reply_markup=FSUB_CANCEL_KEYBOARD, parse_mode="HTML")
         return A_FSUB_TITLE
@@ -869,7 +898,7 @@ async def admin_fsub_get_title(update: Update, context: ContextTypes.DEFAULT_TYP
         "Please enter the <b>Invite Link</b> for this channel:\n"
         "<i>(Example: https://t.me/GravixRDP or https://t.me/+joinhash)</i>"
         "</blockquote>\n\n"
-        "<i>(Send Link or tap ❌ Cancel to abort)</i>"
+        "<i>(Send Link or tap ⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋ to abort)</i>"
     )
     await update.message.reply_text(text_resp, reply_markup=FSUB_CANCEL_KEYBOARD, parse_mode="HTML")
     return A_FSUB_LINK
@@ -897,7 +926,7 @@ async def admin_fsub_get_link(update: Update, context: ContextTypes.DEFAULT_TYPE
             "<blockquote>"
             "The invite link must start with <code>https://t.me/...</code>"
             "</blockquote>\n\n"
-            "<i>(Send Link or tap ❌ Cancel to abort)</i>"
+            "<i>(Send Link or tap ⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋ to abort)</i>"
         )
         await update.message.reply_text(text_resp, reply_markup=FSUB_CANCEL_KEYBOARD, parse_mode="HTML")
         return A_FSUB_LINK
@@ -941,11 +970,13 @@ async def admin_fsub_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await admin_fsub_list_handler(update, context, 0)
     return ConversationHandler.END
 
-admin_cancel_filter = filters.Regex(r"(?i)^(❌\s*Cancel|/cancel|cancel|🔙\s*Back to Admin|🏠\s*Back to Admin|🏠\s*Exit Admin|🔙\s*𝗕𝗮𝗰𝗸\s*𝘁𝗼\s*𝗔𝗱𝗺𝗶𝗻|🏠\s*𝗕𝗮𝗰𝗸\s*𝘁𝗼\s*𝗔𝗱𝗺𝗶𝗻|🏠\s*𝗘𝘅𝗶𝘁\s*𝗔𝗱𝗺𝗶𝗻)$")
+admin_cancel_filter = filters.Regex(
+    r"(?i)^(?:⇋\s*)?(?:❌\s*Cancel|/cancel|cancel|🔙\s*Back to Admin|🏠\s*Back to Admin|🏠\s*Exit Admin|🔙\s*Back to Users|🔙\s*𝗕𝗮𝗰𝗸\s*𝘁𝗼\s*𝗔𝗱𝗺𝗶𝗻|🏠\s*𝗕𝗮𝗰𝗸\s*𝘁𝗼\s*𝗔𝗱𝗺𝗶𝗻|🏠\s*𝗘𝘅𝗶𝘁\s*𝗔𝗱𝗺𝗶𝗻|🔙\s*𝗕𝗮𝗰𝗸\s*𝘁𝗼\s*𝗨𝘀𝗲𝗿𝘀|𝗕𝗮𝗰𝗸\s*𝘁𝗼\s*𝗔𝗱𝗺𝗶𝗻|𝗕𝗮𝗰𝗸\s*𝘁𝗼\s*𝗨𝘀𝗲𝗿𝘀|𝗘𝘅𝗶𝘁\s*𝗔𝗱𝗺𝗶𝗻|𝗖𝗮𝗻𝗰𝗲𝗹)(?:\s*⇋)?$"
+)
 
 admin_fsub_conv = ConversationHandler(
     entry_points=[
-        MessageHandler(filters.Regex(r"^(?:➕ Add Force-Sub Channel|➕ 𝗔𝗱𝗱 𝗙𝗼𝗿𝗰𝗲-𝗦𝘂𝗯 𝗖𝗵𝗮𝗻𝗻𝗲𝗹)$"), admin_fsub_add_start),
+        MessageHandler(filters.Regex(r"^(?:⇋\s*)?(?:➕\s*)?(?:Add Force-Sub Channel|𝗔𝗱𝗱 𝗙𝗼𝗿𝗰𝗲-𝗦𝘂𝗯 𝗖𝗵𝗮𝗻𝗻𝗲𝗹)(?:\s*⇋)?$"), admin_fsub_add_start),
         CallbackQueryHandler(admin_fsub_add_start, pattern="^admin_fsub_add_start$"),
         CommandHandler("addchannel", admin_fsub_add_start)
     ],
@@ -956,7 +987,7 @@ admin_fsub_conv = ConversationHandler(
     },
     fallbacks=[
         CommandHandler("cancel", admin_fsub_cancel),
-        MessageHandler(filters.Regex(r"(?i)^(❌\s*Cancel|/cancel|cancel|🔙\s*Back to Admin|🏠\s*Back to Admin|🏠\s*Exit Admin|🔙\s*𝗕𝗮𝗰𝗸\s*𝘁𝗼\s*𝗔𝗱𝗺𝗶𝗻|🏠\s*𝗕𝗮𝗰𝗸\s*𝘁𝗼\s*𝗔𝗱𝗺𝗶𝗻|🏠\s*𝗘𝘅𝗶𝘁\s*𝗔𝗱𝗺𝗶𝗻)$"), admin_fsub_cancel),
+        MessageHandler(admin_cancel_filter, admin_fsub_cancel),
         CallbackQueryHandler(admin_fsub_cancel, pattern="^(admin_fsub_cancel|admin_panel)$")
     ],
     conversation_timeout=600,
@@ -968,7 +999,7 @@ admin_fsub_conv = ConversationHandler(
 # 3.1. Admin Set Custom Slots Conversation Flow
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-SLOTS_CANCEL_KEYBOARD = ReplyKeyboardMarkup([[KeyboardButton("❌ Cancel")]], resize_keyboard=True)
+SLOTS_CANCEL_KEYBOARD = ReplyKeyboardMarkup([[KeyboardButton("⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋")]], resize_keyboard=True)
 
 async def admin_slots_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -978,12 +1009,12 @@ async def admin_slots_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     raw_text = update.message.text.strip() if (update.message and update.message.text) else ""
     clean_text = normalize_user_input(raw_text)
-    m = re.search(r"\[UID:\s*(\d+)\]", clean_text)
+    m = re.search(r"\[UID:\s*(\d+)\]|\(UID:\s*(\d+)\)", clean_text)
     if not m:
         await admin_users_list_handler(update, context, 0)
         return ConversationHandler.END
 
-    target_uid = int(m.group(1))
+    target_uid = int(m.group(1) or m.group(2))
     context.user_data['active_flow'] = 'set_slots'
     context.user_data['target_slot_uid'] = target_uid
 
@@ -999,7 +1030,7 @@ async def admin_slots_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📦 <b>Current Slots:</b> <code>{curr_slots}</code>\n\n"
         "Please send the new slot allocation number (<b>1 to 100</b>):"
         "</blockquote>\n\n"
-        "<i>(Enter an integer from 1 to 100, or tap ❌ Cancel below to abort)</i>"
+        "<i>(Enter an integer from 1 to 100, or tap ⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋ below to abort)</i>"
     )
     await _send_admin_msg(update, msg_text, reply_markup=SLOTS_CANCEL_KEYBOARD)
     return A_SET_SLOTS_NUM
@@ -1030,7 +1061,7 @@ async def admin_slots_get_num(update: Update, context: ContextTypes.DEFAULT_TYPE
             "<blockquote>"
             "Please provide a valid integer number between <b>1</b> and <b>100</b>."
             "</blockquote>\n\n"
-            "<i>(Enter a number between 1-100 or tap ❌ Cancel to abort)</i>"
+            "<i>(Enter a number between 1-100 or tap ⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋ to abort)</i>"
         )
         await update.message.reply_text(err_msg, reply_markup=SLOTS_CANCEL_KEYBOARD, parse_mode="HTML")
         return A_SET_SLOTS_NUM
@@ -1044,7 +1075,7 @@ async def admin_slots_get_num(update: Update, context: ContextTypes.DEFAULT_TYPE
             "<blockquote>"
             "Custom slot limit must be between <b>1</b> and <b>100</b>."
             "</blockquote>\n\n"
-            "<i>(Enter a number between 1-100 or tap ❌ Cancel to abort)</i>"
+            "<i>(Enter a number between 1-100 or tap ⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋ to abort)</i>"
         )
         await update.message.reply_text(err_msg, reply_markup=SLOTS_CANCEL_KEYBOARD, parse_mode="HTML")
         return A_SET_SLOTS_NUM
@@ -1079,14 +1110,14 @@ async def admin_slots_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 admin_slots_conv = ConversationHandler(
     entry_points=[
-        MessageHandler(filters.Regex(r"^✏️\s*(?:Set Custom Slots|𝗦𝗲𝘁 𝗖𝘂𝘀𝘁𝗼𝗺 𝗦𝗹𝗼𝘁𝘀)\s+\[UID:\s*(\d+)\]$"), admin_slots_start)
+        MessageHandler(filters.Regex(r"^(?:⇋\s*)?(?:✏️\s*)?(?:Set Custom Slots|𝗦𝗲𝘁 𝗖𝘂𝘀𝘁𝗼𝗺 𝗦𝗹𝗼𝘁𝘀)\s+\[UID:\s*(\d+)\](?:\s*⇋)?$"), admin_slots_start)
     ],
     states={
         A_SET_SLOTS_NUM: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~admin_cancel_filter, admin_slots_get_num)]
     },
     fallbacks=[
         CommandHandler("cancel", admin_slots_cancel),
-        MessageHandler(filters.Regex(r"(?i)^(❌\s*Cancel|/cancel|cancel|🔙\s*Back to Admin|🏠\s*Back to Admin|🏠\s*Exit Admin|🔙\s*Back to Users|🔙\s*𝗕𝗮𝗰𝗸\s*𝘁𝗼\s*𝗔𝗱𝗺𝗶𝗻|🏠\s*𝗕𝗮𝗰𝗸\s*𝘁𝗼\s*𝗔𝗱𝗺𝗶𝗻|🏠\s*𝗘𝘅𝗶𝘁\s*𝗔𝗱𝗺𝗶𝗻|🔙\s*𝗕𝗮𝗰𝗸\s*𝘁𝗼\s*𝗨𝘀𝗲𝗿𝘀)$"), admin_slots_cancel),
+        MessageHandler(admin_cancel_filter, admin_slots_cancel),
         CallbackQueryHandler(admin_slots_cancel, pattern="^(admin_slots_cancel|admin_panel)$")
     ],
     conversation_timeout=600,
@@ -1109,119 +1140,155 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return False
 
     clean_text = normalize_user_input(raw_text)
+    stripped = clean_text.strip("⇋ ").strip()
 
-    # Main / Navigation
-    if clean_text in ["👑 Open Admin Panel", "🔄 Refresh Admin", "🔙 Back to Admin", "🏠 Back to Admin"]:
-        await admin_panel(update, context)
-        return True
-    elif clean_text in ["🏠 Exit Admin", "Exit Admin"]:
-        await admin_exit_handler(update, context)
-        return True
-    elif clean_text == "📊 System Stats":
+    # 1. Main Navigation
+    if stripped in ["System Stats", "📊 System Stats"] or clean_text in ["System Stats", "📊 System Stats"]:
         await admin_stats_handler(update, context)
         return True
-    elif clean_text.startswith("⚙️ Toggle Maintenance"):
-        await admin_toggle_maint_handler(update, context)
+
+    if stripped in ["User Manager", "👥 User Manager"] or clean_text in ["User Manager", "👥 User Manager"]:
+        await admin_users_list_handler(update, context, 0)
         return True
-    elif clean_text in ["📢 Broadcast", "📢 Broadcast Announcement", "📢 Broadcast Message"]:
+
+    if stripped in ["All Hosted Bots", "🤖 All Hosted Bots"] or clean_text in ["All Hosted Bots", "🤖 All Hosted Bots"]:
+        await admin_bots_list_handler(update, context, 0)
+        return True
+
+    if stripped in ["Force-Sub Channels", "📢 Force-Sub Channels"] or clean_text in ["Force-Sub Channels", "📢 Force-Sub Channels"]:
+        await admin_fsub_list_handler(update, context, 0)
+        return True
+
+    if stripped in ["Broadcast", "Broadcast Announcement", "Broadcast Message", "📢 Broadcast", "📢 Broadcast Announcement", "📢 Broadcast Message"] or clean_text in ["Broadcast", "Broadcast Announcement", "Broadcast Message", "📢 Broadcast", "📢 Broadcast Announcement", "📢 Broadcast Message"]:
         await admin_broadcast_prompt_handler(update, context)
         return True
 
-    # User Management
-    elif clean_text in ["👥 User Manager", "🔙 Back to Users"]:
-        page = context.user_data.get('admin_users_page', 0) if clean_text == "🔙 Back to Users" else 0
+    if stripped.startswith("Toggle Maintenance") or clean_text.startswith("Toggle Maintenance") or clean_text.startswith("⚙️ Toggle Maintenance") or "Toggle Maintenance" in stripped:
+        await admin_toggle_maint_handler(update, context)
+        return True
+
+    if stripped in ["Refresh Admin", "Open Admin Panel", "Back to Admin", "👑 Open Admin Panel", "🔄 Refresh Admin", "🔙 Back to Admin", "🏠 Back to Admin"] or clean_text in ["Refresh Admin", "Open Admin Panel", "Back to Admin", "👑 Open Admin Panel", "🔄 Refresh Admin", "🔙 Back to Admin", "🏠 Back to Admin"]:
+        await admin_panel(update, context)
+        return True
+
+    if stripped in ["Exit Admin", "🏠 Exit Admin"] or clean_text in ["Exit Admin", "🏠 Exit Admin"]:
+        await admin_exit_handler(update, context)
+        return True
+
+    # 2. User Management Navigation & Actions
+    if stripped in ["Back to Users", "🔙 Back to Users"] or clean_text in ["Back to Users", "🔙 Back to Users"]:
+        page = context.user_data.get('admin_users_page', 0)
         await admin_users_list_handler(update, context, page)
         return True
-    elif clean_text == "⬅️ Prev Users":
+
+    if stripped in ["Prev Users", "⬅️ Prev Users"] or clean_text in ["Prev Users", "⬅️ Prev Users"]:
         curr_page = max(0, context.user_data.get('admin_users_page', 0) - 1)
         await admin_users_list_handler(update, context, curr_page)
         return True
-    elif clean_text == "Next Users ➡️":
+
+    if stripped in ["Next Users", "Next Users ➡️"] or clean_text in ["Next Users", "Next Users ➡️"]:
         curr_page = context.user_data.get('admin_users_page', 0) + 1
         await admin_users_list_handler(update, context, curr_page)
         return True
-    elif re.match(r"^👤\s+.+\s+\(UID:\s*(\d+)\)$", clean_text):
-        m = re.match(r"^👤\s+.+\s+\(UID:\s*(\d+)\)$", clean_text)
-        await admin_user_detail_handler(update, context, int(m.group(1)))
-        return True
-    elif re.match(r"^(?:🔓 Unban User|🚫 Ban User)\s+\[UID:\s*(\d+)\]$", clean_text):
-        m = re.match(r"^(?:🔓 Unban User|🚫 Ban User)\s+\[UID:\s*(\d+)\]$", clean_text)
-        await admin_user_action_handler(update, context, action="toggle_ban", target_uid=int(m.group(1)))
-        return True
-    elif re.match(r"^➕ \+1 Slot\s+\[UID:\s*(\d+)\]$", clean_text):
-        m = re.match(r"^➕ \+1 Slot\s+\[UID:\s*(\d+)\]$", clean_text)
-        await admin_user_action_handler(update, context, action="inc_slots", target_uid=int(m.group(1)))
-        return True
-    elif re.match(r"^➖ -1 Slot\s+\[UID:\s*(\d+)\]$", clean_text):
-        m = re.match(r"^➖ -1 Slot\s+\[UID:\s*(\d+)\]$", clean_text)
-        await admin_user_action_handler(update, context, action="dec_slots", target_uid=int(m.group(1)))
-        return True
-    elif re.match(r"^➕ Add \+2 Slots\s+\[UID:\s*(\d+)\]$", clean_text):
-        m = re.match(r"^➕ Add \+2 Slots\s+\[UID:\s*(\d+)\]$", clean_text)
-        await admin_user_action_handler(update, context, action="inc_slots", target_uid=int(m.group(1)))
-        return True
-    elif re.match(r"^✏️ Set Custom Slots\s+\[UID:\s*(\d+)\]$", clean_text):
-        await admin_slots_start(update, context)
+
+    if "Ban User" in stripped or "Unban User" in stripped or "Ban User" in clean_text or "Unban User" in clean_text:
+        m = re.search(r"\[UID:\s*(\d+)\]|\(UID:\s*(\d+)\)", clean_text)
+        if m:
+            uid = int(m.group(1) or m.group(2))
+            await admin_user_action_handler(update, context, action="toggle_ban", target_uid=uid)
+            return True
+
+    if "+1 Slot" in stripped or "+2 Slots" in stripped or "+1 Slot" in clean_text or "+2 Slots" in clean_text:
+        m = re.search(r"\[UID:\s*(\d+)\]|\(UID:\s*(\d+)\)", clean_text)
+        if m:
+            uid = int(m.group(1) or m.group(2))
+            await admin_user_action_handler(update, context, action="inc_slots", target_uid=uid)
+            return True
+
+    if "-1 Slot" in stripped or "-1 Slot" in clean_text:
+        m = re.search(r"\[UID:\s*(\d+)\]|\(UID:\s*(\d+)\)", clean_text)
+        if m:
+            uid = int(m.group(1) or m.group(2))
+            await admin_user_action_handler(update, context, action="dec_slots", target_uid=uid)
+            return True
+
+    if "Set Custom Slots" in stripped or "Set Custom Slots" in clean_text:
+        m = re.search(r"\[UID:\s*(\d+)\]|\(UID:\s*(\d+)\)", clean_text)
+        if m:
+            await admin_slots_start(update, context)
+            return True
+
+    # User select button from user list (e.g. "⇋ Bob (@bob) [UID: 12345] ⇋")
+    m_user = re.search(r"(?:\[UID:\s*(\d+)\]|\(UID:\s*(\d+)\))", clean_text)
+    if m_user and not any(k in stripped for k in ["Slot", "Slots", "Ban", "Unban"]):
+        uid = int(m_user.group(1) or m_user.group(2))
+        await admin_user_detail_handler(update, context, user_id=uid)
         return True
 
-    # Bot Management
-    elif clean_text in ["🤖 All Hosted Bots", "🔙 Back to All Bots"]:
-        page = context.user_data.get('admin_bots_page', 0) if clean_text == "🔙 Back to All Bots" else 0
+    # 3. Bot Management Navigation & Actions
+    if stripped in ["Back to All Bots", "🔙 Back to All Bots"] or clean_text in ["Back to All Bots", "🔙 Back to All Bots"]:
+        page = context.user_data.get('admin_bots_page', 0)
         await admin_bots_list_handler(update, context, page)
         return True
-    elif clean_text == "⬅️ Prev All Bots":
+
+    if stripped in ["Prev All Bots", "⬅️ Prev All Bots", "Prev Bots"] or clean_text in ["Prev All Bots", "⬅️ Prev All Bots", "Prev Bots"]:
         curr_page = max(0, context.user_data.get('admin_bots_page', 0) - 1)
         await admin_bots_list_handler(update, context, curr_page)
         return True
-    elif clean_text == "Next All Bots ➡️":
+
+    if stripped in ["Next All Bots", "Next All Bots ➡️", "Next Bots"] or clean_text in ["Next All Bots", "Next All Bots ➡️", "Next Bots"]:
         curr_page = context.user_data.get('admin_bots_page', 0) + 1
         await admin_bots_list_handler(update, context, curr_page)
         return True
-    elif re.match(r"^[🟢🔴⚪]\s+.+\s+\[#([a-zA-Z0-9_-]+)\]$", clean_text):
-        m = re.match(r"^[🟢🔴⚪]\s+.+\s+\[#([a-zA-Z0-9_-]+)\]$", clean_text)
-        await admin_bot_detail_handler(update, context, bot_id=m.group(1))
-        return True
-    elif re.match(r"^▶️ Force Start\s+\[#([a-zA-Z0-9_-]+)\]$", clean_text):
-        m = re.match(r"^▶️ Force Start\s+\[#([a-zA-Z0-9_-]+)\]$", clean_text)
-        await admin_bot_action_handler(update, context, action="start", bot_id=m.group(1))
-        return True
-    elif re.match(r"^⏹️ Stop\s+\[#([a-zA-Z0-9_-]+)\]$", clean_text):
-        m = re.match(r"^⏹️ Stop\s+\[#([a-zA-Z0-9_-]+)\]$", clean_text)
-        await admin_bot_action_handler(update, context, action="stop", bot_id=m.group(1))
-        return True
-    elif re.match(r"^🔄 Restart\s+\[#([a-zA-Z0-9_-]+)\]$", clean_text):
-        m = re.match(r"^🔄 Restart\s+\[#([a-zA-Z0-9_-]+)\]$", clean_text)
-        await admin_bot_action_handler(update, context, action="restart", bot_id=m.group(1))
-        return True
-    elif re.match(r"^📜 View Logs\s+\[#([a-zA-Z0-9_-]+)\]$", clean_text):
-        m = re.match(r"^📜 View Logs\s+\[#([a-zA-Z0-9_-]+)\]$", clean_text)
-        await admin_bot_action_handler(update, context, action="logs", bot_id=m.group(1))
-        return True
-    elif re.match(r"^🗑️ Force Delete\s+\[#([a-zA-Z0-9_-]+)\]$", clean_text):
-        m = re.match(r"^🗑️ Force Delete\s+\[#([a-zA-Z0-9_-]+)\]$", clean_text)
-        await admin_bot_action_handler(update, context, action="del", bot_id=m.group(1))
-        return True
 
-    # Force-Sub Management
-    elif clean_text in ["📢 Force-Sub Channels", "🔙 Back to Force-Sub"]:
-        page = context.user_data.get('admin_fsub_page', 0) if clean_text == "🔙 Back to Force-Sub" else 0
+    m_bot = re.search(r"\[#([a-zA-Z0-9_-]+)\]", clean_text)
+    if m_bot:
+        bot_id = m_bot.group(1)
+        if "Force Start" in stripped or "▶️ Force Start" in stripped or stripped.startswith("Start ") or stripped.startswith("Start [") or stripped == "Start":
+            await admin_bot_action_handler(update, context, action="start", bot_id=bot_id)
+            return True
+        elif "Stop" in stripped or "⏹️ Stop" in stripped:
+            await admin_bot_action_handler(update, context, action="stop", bot_id=bot_id)
+            return True
+        elif "Restart" in stripped or "🔄 Restart" in stripped:
+            await admin_bot_action_handler(update, context, action="restart", bot_id=bot_id)
+            return True
+        elif "View Logs" in stripped or "📜 View Logs" in stripped or stripped.startswith("Logs"):
+            await admin_bot_action_handler(update, context, action="logs", bot_id=bot_id)
+            return True
+        elif "Force Delete" in stripped or "🗑️ Force Delete" in stripped or stripped.startswith("Delete"):
+            await admin_bot_action_handler(update, context, action="del", bot_id=bot_id)
+            return True
+        else:
+            # Selected bot from list
+            await admin_bot_detail_handler(update, context, bot_id=bot_id)
+            return True
+
+    # 4. Force-Sub Navigation & Actions
+    if stripped in ["Back to Force-Sub", "🔙 Back to Force-Sub"] or clean_text in ["Back to Force-Sub", "🔙 Back to Force-Sub"]:
+        page = context.user_data.get('admin_fsub_page', 0)
         await admin_fsub_list_handler(update, context, page)
         return True
-    elif clean_text == "⬅️ Prev FSub":
+
+    if stripped in ["Prev FSub", "⬅️ Prev FSub"] or clean_text in ["Prev FSub", "⬅️ Prev FSub"]:
         curr_page = max(0, context.user_data.get('admin_fsub_page', 0) - 1)
         await admin_fsub_list_handler(update, context, curr_page)
         return True
-    elif clean_text == "Next FSub ➡️":
+
+    if stripped in ["Next FSub", "Next FSub ➡️"] or clean_text in ["Next FSub", "Next FSub ➡️"]:
         curr_page = context.user_data.get('admin_fsub_page', 0) + 1
         await admin_fsub_list_handler(update, context, curr_page)
         return True
-    elif clean_text in ["➕ Add Force-Sub Channel", "➕ Add Channel"]:
+
+    if stripped in ["Add Force-Sub Channel", "➕ Add Force-Sub Channel", "Add Channel", "➕ Add Channel"] or clean_text in ["Add Force-Sub Channel", "➕ Add Force-Sub Channel", "Add Channel", "➕ Add Channel"]:
         await admin_fsub_add_start(update, context)
         return True
-    elif re.match(r"^🗑️ Remove\s+.+\s+\[(.+)\]$", clean_text):
-        m = re.match(r"^🗑️ Remove\s+.+\s+\[(.+)\]$", clean_text)
-        await admin_fsub_del_handler(update, context, channel_id=m.group(1).strip())
-        return True
+
+    if "Remove" in stripped and ("[" in clean_text and "]" in clean_text):
+        m_cid = re.search(r"\[(.+)\]", clean_text)
+        if m_cid:
+            await admin_fsub_del_handler(update, context, channel_id=m_cid.group(1).strip())
+            return True
 
     return False
 

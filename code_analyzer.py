@@ -20,7 +20,6 @@ TOKEN_PATTERN = re.compile(TOKEN_REGEX)
 
 # Standard cancellation words and commands
 CANCELLATION_PHRASES: Set[str] = {
-    "❌ cancel",
     "cancel",
     "/cancel",
     "exit",
@@ -33,12 +32,24 @@ CANCELLATION_PHRASES: Set[str] = {
     "/stop",
     "back",
     "/back",
+    "cancel delete",
+    "❌ cancel",
     "🔙 back",
     "❌ cancel delete",
 }
 
 # Sub-menu navigation buttons
 NAVIGATION_BUTTONS: Set[str] = {
+    "back to main menu",
+    "main menu",
+    "back to my bots",
+    "back to admin",
+    "back to users",
+    "back to all bots",
+    "back to bot inspector",
+    "back to bot details",
+    "back",
+    "exit admin",
     "🔙 back to main menu",
     "🏠 main menu",
     "🔙 back to my bots",
@@ -47,15 +58,20 @@ NAVIGATION_BUTTONS: Set[str] = {
     "🔙 back to all bots",
     "🏠 back to admin",
     "🔙 back",
+    "🏠 exit admin",
 }
 
 # Sub-menu action and feature buttons
 SUB_MENU_BUTTONS: Set[str] = {
+    "refer & earn free slots",
+    "refer & earn slots",
+    "refer & earn",
+    "manage env vars",
+    "export data backup",
+    "export backup",
     "🎁 refer & earn free slots",
     "🎁 refer & earn slots",
     "🎁 refer & earn",
-    "refer & earn slots",
-    "refer & earn free slots",
     "🔑 manage env vars",
     "💾 export data backup",
     "💾 export backup",
@@ -63,47 +79,61 @@ SUB_MENU_BUTTONS: Set[str] = {
 
 # Top-level main menu buttons
 MAIN_MENU_BUTTONS: Set[str] = {
-    "👑 open admin panel 👑",
-    "👑 open admin panel",
-    "open admin panel 👑",
     "open admin panel",
+    "open admin panel 👑",
+    "👑 open admin panel",
+    "👑 open admin panel 👑",
+    "my hosted bots",
     "🤖 my hosted bots",
-    "⚡ quick templates",
-    "⚡ quick template deploy",
     "quick templates",
     "quick template deploy",
-    "📊 my account & slots",
+    "⚡ quick templates",
+    "⚡ quick template deploy",
     "my account & slots",
-    "❓ help & guidelines",
+    "📊 my account & slots",
     "help & guidelines",
-    "💬 customer support",
+    "❓ help & guidelines",
     "customer support",
-    "🔄 refresh",
+    "💬 customer support",
     "refresh",
-    "➕ host new bot",
+    "🔄 refresh",
     "host new bot",
-    "➕ host another bot",
+    "➕ host new bot",
     "host another bot",
+    "➕ host another bot",
+    "refer & earn free slots",
+    "refer & earn slots",
+    "refer & earn",
     "🎁 refer & earn free slots",
     "🎁 refer & earn slots",
     "🎁 refer & earn",
-    "refer & earn slots",
-    "refer & earn free slots",
+    "manage env vars",
     "🔑 manage env vars",
+    "export data backup",
+    "export backup",
     "💾 export data backup",
     "💾 export backup",
 }
 
 # Top-level admin menu buttons
 ADMIN_MENU_BUTTONS: Set[str] = {
+    "system stats",
     "📊 system stats",
+    "user manager",
     "👥 user manager",
+    "all hosted bots",
     "🤖 all hosted bots",
+    "force-sub channels",
     "📢 force-sub channels",
+    "broadcast announcement",
     "📢 broadcast announcement",
+    "toggle maintenance",
     "⚙️ toggle maintenance",
+    "refresh admin",
     "🔄 refresh admin",
+    "exit admin",
     "🏠 exit admin",
+    "add force-sub channel",
     "➕ add force-sub channel",
 }
 
@@ -408,10 +438,42 @@ def from_bold_sans(text: str) -> str:
     return text.translate(_FROM_BOLD_SANS_TABLE)
 
 
+def make_button_text(title: str) -> str:
+    """
+    Formats reply keyboard button text with elegant ⇋ arrow brackets and bold sans-serif typography.
+
+    Args:
+        title: Plain text string for the button label.
+
+    Returns:
+        Formatted button text using ⇋ arrows and Mathematical Bold Sans-Serif font:
+        e.g., '⇋ 𝗛𝗼𝘀𝘁 𝗡𝗲𝘄 𝗕𝗼𝘁 ⇋'
+    """
+    if not isinstance(title, str) or not title.strip():
+        return ""
+    clean_title = title.strip()
+    return f"⇋ {to_bold_sans(clean_title)} ⇋"
+
+
+_ARROW_REGEX = re.compile(r"[⇋⇆⇌⇄↔→←\u21cb\u21c6\u21cc\u21c4\u2194\u2192\u2190]")
+_EMOJI_SYMBOL_PATTERN = (
+    r"[\U00010000-\U0010ffff"
+    r"\u200d\ufe0e\ufe0f\u200b-\u200f"
+    r"\u20a0-\u20cf\u2100-\u214f\u2190-\u21ff\u2200-\u22ff"
+    r"\u2300-\u23ff\u2460-\u24ff\u2500-\u257f\u2580-\u259f"
+    r"\u25a0-\u25ff\u2600-\u27bf\u2900-\u297f\u2b00-\u2bff"
+    r"\u3000-\u303f"
+    r"•·▪▫★☆◆◇▶◀▼▲»«|~*]"
+)
+_LEADING_EMOJI_SYMBOL_REGEX = re.compile(rf"^(?:\s|{_EMOJI_SYMBOL_PATTERN})+")
+_TRAILING_EMOJI_SYMBOL_REGEX = re.compile(rf"(?:\s|{_EMOJI_SYMBOL_PATTERN})+$")
+
+
 def normalize_user_input(text: str) -> str:
     """
     Normalizes user input by converting Unicode bold/sans fonts to standard ASCII,
-    stripping leading/trailing whitespace, and collapsing redundant internal whitespace.
+    stripping arrow variations (⇋, ⇆, ⇌, ⇄, ↔, →, ←), removing leading and trailing
+    emojis and decorative symbols, and collapsing redundant whitespace.
 
     Args:
         text: Raw user input text.
@@ -422,7 +484,10 @@ def normalize_user_input(text: str) -> str:
     if not isinstance(text, str) or not text:
         return ""
     converted = from_bold_sans(text)
-    return " ".join(converted.split())
+    without_arrows = _ARROW_REGEX.sub(" ", converted)
+    without_leading = _LEADING_EMOJI_SYMBOL_REGEX.sub("", without_arrows)
+    without_trailing = _TRAILING_EMOJI_SYMBOL_REGEX.sub("", without_leading)
+    return " ".join(without_trailing.split())
 
 
 def is_cancellation_text(text: str) -> bool:
@@ -447,11 +512,11 @@ def is_cancellation_text(text: str) -> bool:
         return True
 
     # Handle dynamic button variants and prefixes
-    if norm.startswith("⚙️ toggle maintenance"):
+    if norm.startswith("toggle maintenance"):
         return True
-    if norm.startswith("❌ cancel delete"):
+    if norm.startswith("cancel delete"):
         return True
-    if norm.startswith("❌ cancel"):
+    if norm.startswith("cancel"):
         return True
 
     return False
@@ -478,7 +543,7 @@ def is_menu_navigation_text(text: str) -> bool:
         return True
 
     # Handle dynamic button variants and prefixes
-    if norm.startswith("⚙️ toggle maintenance"):
+    if norm.startswith("toggle maintenance"):
         return True
 
     return False
@@ -494,6 +559,7 @@ __all__ = [
     "is_menu_navigation_text",
     "to_bold_sans",
     "from_bold_sans",
+    "make_button_text",
     "normalize_user_input",
     "CANCELLATION_PHRASES",
     "NAVIGATION_BUTTONS",

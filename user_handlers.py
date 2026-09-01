@@ -42,7 +42,7 @@ U_ENV_CHOICE, U_ENV_ADD_KEY, U_ENV_ADD_VAL, U_ENV_DEL_KEY = range(20, 24)
 # UI & Typography Helpers (Mobile-Friendly Clean Aesthetics)
 # ---------------------------------------------------------
 
-def make_header_card(title: str = "GRAVIX-HOST PRO", subtitle: str = "Next-Gen 24/7 Cloud Hosting Engine") -> str:
+def make_header_card(title: str = "GRAVIX-HOST PRO", subtitle: str = "100% Free Forever Cloud Hosting") -> str:
     """Builds a clean, single-line mobile-friendly header."""
     if subtitle:
         return (
@@ -54,6 +54,61 @@ def make_header_card(title: str = "GRAVIX-HOST PRO", subtitle: str = "Next-Gen 2
         f"<b>⚡ {title} ⚡</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━"
     )
+
+async def track_and_clean_chat(bot, chat_id: int, context, new_msg_id: int = None, keep_count: int = 2):
+    """Keeps only the most recent `keep_count` messages in chat, auto-deleting older messages."""
+    if not context or not hasattr(context, "user_data") or not chat_id:
+        return
+    history = context.user_data.setdefault("chat_msg_history", [])
+    if new_msg_id and new_msg_id not in history:
+        history.append(new_msg_id)
+
+    while len(history) > keep_count:
+        old_id = history.pop(0)
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=old_id)
+        except Exception:
+            pass
+
+async def _send_user_screen(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, reply_markup=None, photo_path: str = None, parse_mode: str = "HTML"):
+    """Helper to send screens with automatic message history tracking (keeping only last 2 messages)."""
+    user_id = update.effective_user.id if update.effective_user else None
+    incoming_msg = update.effective_message
+    if user_id and incoming_msg:
+        await track_and_clean_chat(context.bot, user_id, context, incoming_msg.message_id, keep_count=2)
+
+    sent = None
+    if photo_path and os.path.exists(photo_path) and update.message:
+        try:
+            with open(photo_path, "rb") as pf:
+                sent = await context.bot.send_photo(
+                    chat_id=user_id,
+                    photo=pf,
+                    caption=text,
+                    reply_markup=reply_markup,
+                    parse_mode=parse_mode
+                )
+        except Exception as e:
+            logger.warning(f"Failed to send screen photo {photo_path}: {e}")
+            sent = await context.bot.send_message(chat_id=user_id, text=text, reply_markup=reply_markup, parse_mode=parse_mode)
+    elif update.callback_query:
+        try:
+            await update.callback_query.answer()
+        except Exception:
+            pass
+        try:
+            await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+            sent = update.callback_query.message
+        except Exception:
+            sent = await context.bot.send_message(chat_id=user_id, text=text, reply_markup=reply_markup, parse_mode=parse_mode)
+    elif update.message:
+        sent = await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    elif user_id:
+        sent = await context.bot.send_message(chat_id=user_id, text=text, reply_markup=reply_markup, parse_mode=parse_mode)
+
+    if sent and user_id:
+        await track_and_clean_chat(context.bot, user_id, context, sent.message_id, keep_count=2)
+    return sent
 
 def get_status_badge(status: str) -> str:
     """Returns a sleek formatted status badge with HTML markup."""
@@ -110,6 +165,11 @@ async def check_user_subscription(bot, user_id: int) -> tuple[bool, list]:
         raw_cid = ch.get("channel_id") if isinstance(ch, dict) else ch["channel_id"]
         cid_str = str(raw_cid).strip()
 
+        # If channel_id is an invite link (https://t.me/+... or contains '+')
+        if "+" in cid_str or "joinchat" in cid_str:
+            logger.info(f"Invite link channel {cid_str} cannot be verified via get_chat_member; skipping enforcement.")
+            continue
+
         # Format channel ID for Telegram API lookup
         if not cid_str.startswith("@") and not cid_str.startswith("-100"):
             if cid_str.startswith("-") and cid_str[1:].isdigit():
@@ -120,6 +180,9 @@ async def check_user_subscription(bot, user_id: int) -> tuple[bool, list]:
                 slug = cid_str.split("t.me/")[-1].strip().lstrip("@")
                 if not slug.startswith("+") and not slug.startswith("joinchat/") and "/" not in slug:
                     cid_str = f"@{slug}"
+                else:
+                    logger.info(f"Invite link channel {cid_str} skipped from Bot API check.")
+                    continue
             elif not cid_str.startswith("+"):
                 cid_str = f"@{cid_str}"
 
@@ -130,13 +193,23 @@ async def check_user_subscription(bot, user_id: int) -> tuple[bool, list]:
                 cid_param = cid_str
 
             member = await bot.get_chat_member(chat_id=cid_param, user_id=user_id)
-            if member.status not in valid_statuses:
+            if member.status in valid_statuses:
+                continue
+            elif member.status in {"left", "kicked"}:
+                unjoined.append(ch)
+            else:
                 unjoined.append(ch)
         except Exception as e:
             err_text = str(e).lower()
             logger.info(f"FSub check for user {user_id} in {cid_str}: {e}")
-            # If user has not joined, Telegram raises 'user not found' or returns left
-            unjoined.append(ch)
+            if "chat not found" in err_text or "bot is not a member" in err_text or "chat_admin_required" in err_text or "not enough rights" in err_text or "bot was kicked" in err_text or "bot was blocked" in err_text:
+                # Bot cannot check this chat, do NOT block user!
+                logger.info(f"Cannot resolve chat {cid_str} via Bot API, skipping enforcement.")
+                continue
+            elif "user not found" in err_text or "participant" in err_text or "user_not_participant" in err_text or "not a member" in err_text:
+                unjoined.append(ch)
+            else:
+                unjoined.append(ch)
 
     return len(unjoined) == 0, unjoined
 
@@ -188,17 +261,18 @@ async def verify_fsub_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
 # ---------------------------------------------------------
 # Dynamic ReplyKeyboardMarkup Generators (100% Persistent Bottom Keyboards)
+# Design Pattern: ⇋ 𝗧𝗘𝗫𝗧 ⇋ (No Emojis on Buttons)
 # ---------------------------------------------------------
 
 def get_main_reply_keyboard(user_id: int) -> ReplyKeyboardMarkup:
     keyboard = []
     if user_id == ADMIN_ID:
-        keyboard.append([KeyboardButton("👑 𝗢𝗽𝗲𝗻 𝗔𝗱𝗺𝗶𝗻 𝗣𝗮𝗻𝗲𝗹 👑")])
+        keyboard.append([KeyboardButton("⇋ 𝗢𝗽𝗲𝗻 𝗔𝗱𝗺𝗶𝗻 𝗣𝗮𝗻𝗲𝗹 ⇋")])
     keyboard.extend([
-        [KeyboardButton("➕ 𝗛𝗼𝘀𝘁 𝗡𝗲𝘄 𝗕𝗼𝘁"), KeyboardButton("🤖 𝗠𝘆 𝗛𝗼𝘀𝘁𝗲𝗱 𝗕𝗼𝘁𝘀")],
-        [KeyboardButton("⚡ 𝗤𝘂𝗶𝗰𝗸 𝗧𝗲𝗺𝗽𝗹𝗮𝘁𝗲𝘀"), KeyboardButton("📊 𝗠𝘆 𝗔𝗰𝗰𝗼𝘂𝗻𝘁 & 𝗦𝗹𝗼𝘁𝘀")],
-        [KeyboardButton("🎁 𝗥𝗲𝗳𝗲𝗿 & 𝗘𝗮𝗿𝗻 𝗦𝗹𝗼𝘁𝘀"), KeyboardButton("💬 𝗖𝘂𝘀𝘁𝗼𝗺𝗲𝗿 𝗦𝘂𝗽𝗽𝗼𝗿𝘁")],
-        [KeyboardButton("❓ 𝗛𝗲𝗹𝗽 & 𝗚𝘂𝗶𝗱𝗲𝗹𝗶𝗻𝗲𝘀"), KeyboardButton("🔄 𝗥𝗲𝗳𝗿𝗲𝘀𝗵")]
+        [KeyboardButton("⇋ 𝗛𝗼𝘀𝘁 𝗡𝗲𝘄 𝗕𝗼𝘁 ⇋"), KeyboardButton("⇋ 𝗠𝘆 𝗛𝗼𝘀𝘁𝗲𝗱 𝗕𝗼𝘁𝘀 ⇋")],
+        [KeyboardButton("⇋ 𝗤𝘂𝗶𝗰𝗸 𝗧𝗲𝗺𝗽𝗹𝗮𝘁𝗲𝘀 ⇋"), KeyboardButton("⇋ 𝗠𝘆 𝗔𝗰𝗰𝗼𝘂𝗻𝘁 & 𝗦𝗹𝗼𝘁𝘀 ⇋")],
+        [KeyboardButton("⇋ 𝗥𝗲𝗳𝗲𝗿 & 𝗘𝗮𝗿𝗻 𝗦𝗹𝗼𝘁𝘀 ⇋"), KeyboardButton("⇋ 𝗖𝘂𝘀𝘁𝗼𝗺𝗲𝗿 𝗦𝘂𝗽𝗽𝗼𝗿𝘁 ⇋")],
+        [KeyboardButton("⇋ 𝗛𝗲𝗹𝗽 & 𝗚𝘂𝗶𝗱𝗲𝗹𝗶𝗻𝗲𝘀 ⇋"), KeyboardButton("⇋ 𝗥𝗲𝗳𝗿𝗲𝘀𝗵 ⇋")]
     ])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -210,58 +284,57 @@ def get_my_bots_reply_keyboard(user_bots: list, page: int = 0) -> ReplyKeyboardM
 
     keyboard = []
     for b in curr_bots:
-        status = b.get('status', 'STOPPED')
-        status_emoji = "🟢" if status == "RUNNING" else ("🔴" if status in ["FAILED", "CRASHED"] else "⚪")
         bot_name = b.get('bot_name', 'Unnamed Bot')
         bot_id = b.get('bot_id', '')
-        keyboard.append([KeyboardButton(f"{status_emoji} {bot_name} [#{bot_id}]")])
+        clean_bname = re.sub(r'^[^\w\s]+', '', bot_name).strip()
+        keyboard.append([KeyboardButton(f"⇋ {clean_bname} [#{bot_id}] ⇋")])
 
     if total_pages > 1:
         nav_row = []
         if page > 0:
-            nav_row.append(KeyboardButton("⬅️ 𝗣𝗿𝗲𝘃 𝗕𝗼𝘁𝘀"))
+            nav_row.append(KeyboardButton("⇋ 𝗣𝗿𝗲𝘃 𝗕𝗼𝘁𝘀 ⇋"))
         if page < total_pages - 1:
-            nav_row.append(KeyboardButton("𝗡𝗲𝘅𝘁 𝗕𝗼𝘁𝘀 ➡️"))
+            nav_row.append(KeyboardButton("⇋ 𝗡𝗲𝘅𝘁 𝗕𝗼𝘁𝘀 ⇋"))
         if nav_row:
             keyboard.append(nav_row)
 
-    keyboard.append([KeyboardButton("➕ 𝗛𝗼𝘀𝘁 𝗔𝗻𝗼𝘁𝗵𝗲𝗿 𝗕𝗼𝘁"), KeyboardButton("🔙 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂")])
+    keyboard.append([KeyboardButton("⇋ 𝗛𝗼𝘀𝘁 𝗔𝗻𝗼𝘁𝗵𝗲𝗿 𝗕𝗼𝘁 ⇋"), KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂 ⇋")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_bot_detail_reply_keyboard(bot_id: str, status: str) -> ReplyKeyboardMarkup:
     keyboard = []
     if status == 'RUNNING':
         keyboard.append([
-            KeyboardButton(f"⏹️ 𝗦𝘁𝗼𝗽 𝗕𝗼𝘁 [#{bot_id}]"),
-            KeyboardButton(f"🔄 𝗥𝗲𝘀𝘁𝗮𝗿𝘁 𝗕𝗼𝘁 [#{bot_id}]")
+            KeyboardButton(f"⇋ 𝗦𝘁𝗼𝗽 𝗕𝗼𝘁 [#{bot_id}] ⇋"),
+            KeyboardButton(f"⇋ 𝗥𝗲𝘀𝘁𝗮𝗿𝘁 𝗕𝗼𝘁 [#{bot_id}] ⇋")
         ])
     else:
         keyboard.append([
-            KeyboardButton(f"▶️ 𝗦𝘁𝗮𝗿𝘁 𝗕𝗼𝘁 [#{bot_id}]")
+            KeyboardButton(f"⇋ 𝗦𝘁𝗮𝗿𝘁 𝗕𝗼𝘁 [#{bot_id}] ⇋")
         ])
     keyboard.append([
-        KeyboardButton(f"📜 𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀 [#{bot_id}]"),
-        KeyboardButton(f"🗑️ 𝗗𝗲𝗹𝗲𝘁𝗲 𝗕𝗼𝘁 [#{bot_id}]")
+        KeyboardButton(f"⇋ 𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀 [#{bot_id}] ⇋"),
+        KeyboardButton(f"⇋ 𝗗𝗲𝗹𝗲𝘁𝗲 𝗕𝗼𝘁 [#{bot_id}] ⇋")
     ])
     keyboard.append([
-        KeyboardButton(f"🔑 𝗠𝗮𝗻𝗮𝗴𝗲 𝗘𝗻𝘃 𝗩𝗮𝗿𝘀 [#{bot_id}]"),
-        KeyboardButton(f"💾 𝗘𝘅𝗽𝗼𝗿𝘁 𝗕𝗮𝗰𝗸𝘂𝗽 [#{bot_id}]")
+        KeyboardButton(f"⇋ 𝗠𝗮𝗻𝗮𝗴𝗲 𝗘𝗻𝘃 𝗩𝗮𝗿𝘀 [#{bot_id}] ⇋"),
+        KeyboardButton(f"⇋ 𝗘𝘅𝗽𝗼𝗿𝘁 𝗕𝗮𝗰𝗸𝘂𝗽 [#{bot_id}] ⇋")
     ])
     keyboard.append([
-        KeyboardButton("🔙 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝘆 𝗕𝗼𝘁𝘀"),
-        KeyboardButton("🏠 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂")
+        KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝘆 𝗕𝗼𝘁𝘀 ⇋"),
+        KeyboardButton("⇋ 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂 ⇋")
     ])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_env_menu_keyboard(has_vars: bool = False) -> ReplyKeyboardMarkup:
-    top_row = [KeyboardButton("➕ 𝗔𝗱𝗱 𝗩𝗮𝗿𝗶𝗮𝗯𝗹𝗲")]
+    top_row = [KeyboardButton("⇋ 𝗔𝗱𝗱 𝗩𝗮𝗿𝗶𝗮𝗯𝗹𝗲 ⇋")]
     if has_vars:
-        top_row.append(KeyboardButton("🗑️ 𝗗𝗲𝗹𝗲𝘁𝗲 𝗩𝗮𝗿𝗶𝗮𝗯𝗹𝗲"))
+        top_row.append(KeyboardButton("⇋ 𝗗𝗲𝗹𝗲𝘁𝗲 𝗩𝗮𝗿𝗶𝗮𝗯𝗹𝗲 ⇋"))
     keyboard = [
         top_row,
         [
-            KeyboardButton("🔙 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗕𝗼𝘁 𝗜𝗻𝘀𝗽𝗲𝗰𝘁𝗼𝗿"),
-            KeyboardButton("❌ 𝗖𝗮𝗻𝗰𝗲𝗹")
+            KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗕𝗼𝘁 ⇋"),
+            KeyboardButton("⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋")
         ]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -269,8 +342,8 @@ def get_env_menu_keyboard(has_vars: bool = False) -> ReplyKeyboardMarkup:
 def get_delete_confirm_keyboard(bot_id: str) -> ReplyKeyboardMarkup:
     keyboard = [
         [
-            KeyboardButton(f"⚠️ 𝗖𝗼𝗻𝗳𝗶𝗿𝗺 𝗗𝗲𝗹𝗲𝘁𝗲 [#{bot_id}]"),
-            KeyboardButton(f"❌ 𝗖𝗮𝗻𝗰𝗲𝗹 𝗗𝗲𝗹𝗲𝘁𝗲 [#{bot_id}]")
+            KeyboardButton(f"⇋ 𝗖𝗼𝗻𝗳𝗶𝗿𝗺 𝗗𝗲𝗹𝗲𝘁𝗲 [#{bot_id}] ⇋"),
+            KeyboardButton(f"⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 𝗗𝗲𝗹𝗲𝘁𝗲 [#{bot_id}] ⇋")
         ]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -278,21 +351,23 @@ def get_delete_confirm_keyboard(bot_id: str) -> ReplyKeyboardMarkup:
 def get_templates_reply_keyboard() -> ReplyKeyboardMarkup:
     keyboard = []
     for key, tinfo in TEMPLATES.items():
-        keyboard.append([KeyboardButton(tinfo['name'])])
-    keyboard.append([KeyboardButton("🔙 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂")])
+        raw_name = tinfo.get('name', key)
+        clean_name = re.sub(r'^[^\w\s]+', '', raw_name).strip()
+        keyboard.append([KeyboardButton(f"⇋ {clean_name} ⇋")])
+    keyboard.append([KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂 ⇋")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_back_to_main_keyboard() -> ReplyKeyboardMarkup:
-    keyboard = [[KeyboardButton("🔙 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂")]]
+    keyboard = [[KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂 ⇋")]]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_cancel_keyboard() -> ReplyKeyboardMarkup:
-    keyboard = [[KeyboardButton("❌ 𝗖𝗮𝗻𝗰𝗲𝗹")]]
+    keyboard = [[KeyboardButton("⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋")]]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_token_input_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
-        [KeyboardButton("⏩ 𝗦𝗸𝗶𝗽 (𝗔𝘂𝘁𝗼-𝗗𝗲𝘁𝗲𝗰𝘁 𝗧𝗼𝗸𝗲𝗻)"), KeyboardButton("❌ 𝗖𝗮𝗻𝗰𝗲𝗹")]
+        [KeyboardButton("⇋ 𝗦𝗸𝗶𝗽 (𝗔𝘂𝘁𝗼-𝗗𝗲𝘁𝗲𝗰𝘁 𝗧𝗼𝗸𝗲𝗻) ⇋"), KeyboardButton("⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -344,32 +419,26 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if maint and user.id != ADMIN_ID:
         maint_notice = "\n<blockquote>⚠️ <b>Notice:</b> System maintenance is currently active. Deployments may be temporarily paused.</blockquote>\n"
 
-    header = make_header_card("GRAVIX-HOST PRO", "Next-Gen 24/7 Cloud Hosting Engine")
+    header = make_header_card("GRAVIX-HOST PRO", "100% Free Forever Cloud Hosting")
     safe_name = html.escape(user.first_name or "Developer")
 
     text = (
         f"{header}\n\n"
         f"👋 Welcome, <b>{safe_name}</b>!\n\n"
-        "<blockquote><b>Gravix-Host</b> delivers high-performance 24/7 isolated cloud runtime "
-        "for your Python Telegram bots with automated watchdog monitoring and zero downtime.</blockquote>\n\n"
-        "<b>🚀 Platform Capabilities:</b>\n"
-        "<blockquote>• <b>Custom Python Hosting:</b> Upload scripts or raw code\n"
-        "• <b>1-Click Templates:</b> Instant pre-configured bot deployment\n"
-        "• <b>Live Console Engine:</b> Real-time log streaming & watchdog\n"
-        "• <b>Lifecycle Control:</b> Start, stop, restart & auto-heal</blockquote>\n"
+        "<blockquote>⚡ <b>100% FREE 24/7 Dedicated Cloud Telegram Bot Hosting</b>\n"
+        "Deploy, monitor, and scale your Python Telegram bots with enterprise-grade reliability and zero cost forever.</blockquote>\n\n"
+        "<b>🚀 Core Platform Features:</b>\n"
+        "<blockquote>• ⚡ <b>100% FREE 24/7 Dedicated Cloud Telegram Bot Hosting</b>\n"
+        "• 🚀 <b>Unlimited Uptime</b> with Automated Watchdog Monitoring\n"
+        "• 📦 <b>Instant 1-Click Templates</b> & Multi-File Script Deployments\n"
+        "• 💾 <b>Live Telemetry</b>, Console Logs & Custom .env Manager</blockquote>\n"
         f"{maint_notice}\n"
-        "👇 <i>Select an action from the persistent menu below to manage your bots:</i>"
+        "👇 <i>Select an option from the persistent menu below to manage your bots:</i>"
     )
 
+    photo_path = os.path.join(os.path.dirname(__file__), "wp14967960.webp")
     reply_kb = get_main_reply_keyboard(user.id)
-    if update.callback_query:
-        try:
-            await update.callback_query.answer()
-        except Exception:
-            pass
-        await update.callback_query.message.reply_text(text, reply_markup=reply_kb, parse_mode="HTML")
-    elif update.message:
-        await update.message.reply_text(text, reply_markup=reply_kb, parse_mode="HTML")
+    await _send_user_screen(update, context, text, reply_markup=reply_kb, photo_path=photo_path)
 
 async def show_my_bots(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
     user = update.effective_user
@@ -405,12 +474,12 @@ async def show_my_bots(update: Update, context: ContextTypes.DEFAULT_TYPE, page:
             f"{header}\n\n"
             "<blockquote>You currently have no hosted bots provisioned on <b>Gravix-Host</b>.</blockquote>\n\n"
             "<b>🚀 Getting Started:</b>\n"
-            "<blockquote>• Tap <b>➕ 𝗛𝗼𝘀𝘁 𝗡𝗲𝘄 𝗕𝗼𝘁</b> to deploy your custom Python script.\n"
-            "• Tap <b>⚡ 𝗤𝘂𝗶𝗰𝗸 𝗧𝗲𝗺𝗽𝗹𝗮𝘁𝗲𝘀</b> to launch a ready-made template in seconds.</blockquote>"
+            "<blockquote>• Tap <b>⇋ 𝗛𝗼𝘀𝘁 𝗡𝗲𝘄 𝗕𝗼𝘁 ⇋</b> to deploy your custom Python script.\n"
+            "• Tap <b>⇋ 𝗤𝘂𝗶𝗰𝗸 𝗧𝗲𝗺𝗽𝗹𝗮𝘁𝗲𝘀 ⇋</b> to launch a ready-made template in seconds.</blockquote>"
         )
         keyboard = ReplyKeyboardMarkup([
-            [KeyboardButton("➕ 𝗛𝗼𝘀𝘁 𝗡𝗲𝘄 𝗕𝗼𝘁"), KeyboardButton("⚡ 𝗤𝘂𝗶𝗰𝗸 𝗧𝗲𝗺𝗽𝗹𝗮𝘁𝗲𝘀")],
-            [KeyboardButton("🔙 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂")]
+            [KeyboardButton("⇋ 𝗛𝗼𝘀𝘁 𝗡𝗲𝘄 𝗕𝗼𝘁 ⇋"), KeyboardButton("⇋ 𝗤𝘂𝗶𝗰𝗸 𝗧𝗲𝗺𝗽𝗹𝗮𝘁𝗲𝘀 ⇋")],
+            [KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂 ⇋")]
         ], resize_keyboard=True)
         if update.callback_query:
             await update.callback_query.message.reply_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -557,7 +626,7 @@ async def handle_bot_action(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         return
 
     raw_input = update.message.text if (update.message and update.message.text) else ""
-    clean_input = normalize_user_input(raw_input)
+    clean_input = normalize_user_input(raw_input).replace("⇋", "").strip()
     if bot_id is None:
         m = re.search(r"\[#([a-zA-Z0-9_-]+)\]", clean_input) or re.search(r"\[#([a-zA-Z0-9_-]+)\]", raw_input)
         if m:
@@ -655,7 +724,7 @@ async def handle_bot_action(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             f"• <b>Bot:</b> <b>{safe_bot_name}</b> (<code>#{html.escape(bot_id)}</code>)\n"
             "• <b>Files:</b> Source files and execution logs will be erased.\n\n"
             "⛔ <i>This action cannot be undone.</i></blockquote>\n\n"
-            "👇 <i>Tap <b>⚠️ Confirm Delete</b> to proceed or <b>❌ Cancel Delete</b> to abort:</i>"
+            "👇 <i>Tap <b>⇋ 𝗖𝗼𝗻𝗳𝗶𝗿𝗺 𝗗𝗲𝗹𝗲𝘁𝗲 ⇋</b> to proceed or <b>⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 𝗗𝗲𝗹𝗲𝘁𝗲 ⇋</b> to abort:</i>"
         )
         await update.effective_message.reply_text(
             text,
@@ -739,7 +808,7 @@ async def show_account_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<b>👤 Account Identity:</b>\n"
         f"<blockquote>• <b>User ID:</b> <code>{user_id}</code>\n"
         f"• <b>Username:</b> {username_str}\n"
-        "• <b>Plan Tier:</b> <code>Standard Developer</code></blockquote>\n\n"
+        "• <b>Plan Tier:</b> <code>100% Free Developer Tier</code></blockquote>\n\n"
         "<b>📦 Infrastructure Quota:</b>\n"
         f"<blockquote>• <b>Total Slots:</b> <code>{max_slots}</code>\n"
         f"• <b>Provisioned Bots:</b> <code>{len(user_bots)} / {max_slots}</code>\n"
@@ -786,14 +855,14 @@ async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• Open @BotFather on Telegram.\n"
         "• Send <code>/newbot</code> and follow prompts to obtain your API Token.\n\n"
         "<b>2️⃣ Deploy Your Bot:</b>\n"
-        "• Tap <b>➕ Host New Bot</b> or <b>⚡ Quick Template Deploy</b>.\n"
+        "• Tap <b>⇋ 𝗛𝗼𝘀𝘁 𝗡𝗲𝘄 𝗕𝗼𝘁 ⇋</b> or <b>⇋ 𝗤𝘂𝗶𝗰𝗸 𝗧𝗲𝗺𝗽𝗹𝗮𝘁𝗲𝘀 ⇋</b>.\n"
         "• Provide your BotFather token.\n"
         "• Upload your <code>.py</code> file or select a ready-made template.\n\n"
         "<b>3️⃣ Supported Frameworks:</b>\n"
         "• <code>python-telegram-bot</code>, <code>aiogram</code>, <code>pyTelegramBotAPI</code>\n"
         "• <code>requests</code>, <code>httpx</code>, <code>aiohttp</code>, <code>asyncio</code>\n\n"
         "<b>4️⃣ Lifecycle & Diagnostics:</b>\n"
-        "• Access live logs, restart, and monitor status anytime in <b>🤖 My Hosted Bots</b>.</blockquote>\n\n"
+        "• Access live logs, restart, and monitor status anytime in <b>⇋ 𝗠𝘆 𝗛𝗼𝘀𝘁𝗲𝗱 𝗕𝗼𝘁𝘀 ⇋</b>.</blockquote>\n\n"
         "<b>💬 Official Customer Support:</b>\n"
         "<blockquote>Need assistance with bot hosting, higher slot limits, or technical troubleshooting?\n\n"
         "🤖 <b>Support Desk Bot:</b> @Dravonnbot\n"
@@ -970,13 +1039,16 @@ async def template_select_start(update: Update, context: ContextTypes.DEFAULT_TY
 
     if update.message and update.message.text:
         text = update.message.text.strip()
-        if is_cancellation_text(text) or (is_menu_navigation_text(text) and not any(text == v['name'] or text.startswith(v['name']) for v in TEMPLATES.values())):
+        norm_t = normalize_user_input(text).replace("⇋", "").strip().lower()
+        if is_cancellation_text(text) or norm_t in ["cancel", "back to main menu", "main menu"]:
             context.user_data.pop('active_flow', None)
             context.user_data.pop('deploy_template_key', None)
-            if text in ["❌ Cancel", "/cancel", "cancel"] or text.lower() in ["❌ cancel", "/cancel", "cancel"]:
-                await update.message.reply_text("❌ Hosting wizard cancelled.", reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
-            else:
-                await user_text_router(update, context)
+            await update.message.reply_text("❌ Hosting wizard cancelled.", reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
+            return ConversationHandler.END
+        elif is_menu_navigation_text(text):
+            context.user_data.pop('active_flow', None)
+            context.user_data.pop('deploy_template_key', None)
+            await user_text_router(update, context)
             return ConversationHandler.END
 
     db_user = database.get_or_create_user(user_id)
@@ -1019,7 +1091,7 @@ async def template_select_start(update: Update, context: ContextTypes.DEFAULT_TY
             f"{make_header_card('QUOTA LIMIT REACHED', 'Resource Capacity Exceeded')}\n\n"
             f"<blockquote>⚠️ You have reached your slot limit of <code>{max_slots}</code> bots "
             f"(<code>{len(user_bots)}/{max_slots}</code>).\n\n"
-            "Please delete an unused bot from <b>🤖 My Hosted Bots</b> or contact Admin for additional capacity.</blockquote>"
+            "Please delete an unused bot from <b>⇋ 𝗠𝘆 𝗛𝗼𝘀𝘁𝗲𝗱 𝗕𝗼𝘁𝘀 ⇋</b> or contact Admin for additional capacity.</blockquote>"
         )
         if update.callback_query:
             await update.callback_query.answer("⚠️ Slot Limit Reached", show_alert=True)
@@ -1034,8 +1106,11 @@ async def template_select_start(update: Update, context: ContextTypes.DEFAULT_TY
         tpl_key = update.callback_query.data.replace("deploy_tpl_", "", 1)
     elif update.message and update.message.text:
         input_text = update.message.text.strip()
+        clean_input = normalize_user_input(input_text).replace("⇋", "").strip().lower()
         for k, v in TEMPLATES.items():
-            if v['name'] == input_text or input_text.startswith(v['name']):
+            t_clean = normalize_user_input(v['name']).replace("⇋", "").strip().lower()
+            t_raw_clean = re.sub(r'^[^\w\s]+', '', v['name']).strip().lower()
+            if clean_input in (t_clean, t_raw_clean) or t_clean in clean_input or t_raw_clean in clean_input or k in clean_input:
                 tpl_key = k
                 break
 
@@ -1063,7 +1138,7 @@ async def template_select_start(update: Update, context: ContextTypes.DEFAULT_TY
         "<b>🔑 Telegram Bot Token:</b>\n"
         "<blockquote>Please send your bot API token obtained from @BotFather.\n"
         "<i>Example:</i> <code>1234567890:AAH_sampleToken...</code></blockquote>\n\n"
-        "👇 <i>Send the token as text or tap <b>❌ Cancel</b> below:</i>"
+        "👇 <i>Send the token as text or tap <b>⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋</b> below:</i>"
     )
     cancel_kb = get_cancel_keyboard()
     if update.callback_query:
@@ -1076,28 +1151,34 @@ async def template_token_received(update: Update, context: ContextTypes.DEFAULT_
     user_id = update.effective_user.id
     if not update.message or not update.message.text:
         await update.effective_message.reply_text(
-            "<blockquote>⚠️ Please send your bot API token as text or tap <b>❌ Cancel</b>.</blockquote>",
+            "<blockquote>⚠️ Please send your bot API token as text or tap <b>⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋</b>.</blockquote>",
             reply_markup=get_cancel_keyboard(),
             parse_mode="HTML"
         )
         return TPL_TOKEN
 
     text = update.message.text.strip()
-    if is_cancellation_text(text) or is_menu_navigation_text(text):
+    norm_t = normalize_user_input(text).replace("⇋", "").strip().lower()
+    if is_cancellation_text(text) or norm_t in ["cancel", "back to main menu", "main menu"]:
         context.user_data.pop('active_flow', None)
         context.user_data.pop('bot_name', None)
         context.user_data.pop('bot_token', None)
         context.user_data.pop('bot_id', None)
         context.user_data.pop('deploy_template_key', None)
-        if text in ["❌ Cancel", "/cancel", "cancel"] or text.lower() in ["❌ cancel", "/cancel", "cancel"]:
-            await update.message.reply_text("❌ Hosting wizard cancelled.", reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
-        else:
-            await user_text_router(update, context)
+        await update.message.reply_text("❌ Hosting wizard cancelled.", reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
+        return ConversationHandler.END
+    elif is_menu_navigation_text(text):
+        context.user_data.pop('active_flow', None)
+        context.user_data.pop('bot_name', None)
+        context.user_data.pop('bot_token', None)
+        context.user_data.pop('bot_id', None)
+        context.user_data.pop('deploy_template_key', None)
+        await user_text_router(update, context)
         return ConversationHandler.END
 
     if context.user_data.get('active_flow') != 'tpl':
         await update.message.reply_text(
-            "<blockquote>⚠️ <b>Session Expired:</b> Please reopen <b>⚡ Quick Template Deploy</b> from the main menu.</blockquote>",
+            "<blockquote>⚠️ <b>Session Expired:</b> Please reopen <b>⇋ 𝗤𝘂𝗶𝗰𝗸 𝗧𝗲𝗺𝗽𝗹𝗮𝘁𝗲𝘀 ⇋</b> from the main menu.</blockquote>",
             reply_markup=get_main_reply_keyboard(user_id),
             parse_mode="HTML"
         )
@@ -1126,7 +1207,8 @@ async def template_token_received(update: Update, context: ContextTypes.DEFAULT_
         )
         return TPL_TOKEN
 
-    bot_name = f"@{bot_uname} ({tinfo['name'].split(' ', 1)[1] if ' ' in tinfo['name'] else tinfo['name']})"
+    clean_tname = re.sub(r'^[^\w\s]+', '', tinfo.get('name', 'Template')).strip()
+    bot_name = f"@{bot_uname} ({clean_tname})"
     bot_id = str(uuid.uuid4())[:8]
     bot_dir = os.path.join(DATA_DIR, "bots", f"{user_id}_{bot_id}")
     os.makedirs(bot_dir, exist_ok=True)
@@ -1221,7 +1303,7 @@ async def host_bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{make_header_card('QUOTA LIMIT REACHED', 'Resource Capacity Exceeded')}\n\n"
             f"<blockquote>⚠️ You have reached your slot limit of <code>{max_slots}</code> bots "
             f"(<code>{len(user_bots)}/{max_slots}</code>).\n\n"
-            "Please delete an existing bot from <b>🤖 My Hosted Bots</b> or contact Admin for more slots.</blockquote>"
+            "Please delete an existing bot from <b>⇋ 𝗠𝘆 𝗛𝗼𝘀𝘁𝗲𝗱 𝗕𝗼𝘁𝘀 ⇋</b> or contact Admin for more slots.</blockquote>"
         )
         if update.callback_query:
             await update.callback_query.answer("⚠️ Slot Limit Reached", show_alert=True)
@@ -1239,7 +1321,7 @@ async def host_bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{header}\n\n"
         "<blockquote>Please enter a friendly <b>Display Name</b> for your bot.\n"
         "<i>Example:</i> <code>My Store Bot</code> or <code>Crypto Price Alert</code></blockquote>\n\n"
-        "👇 <i>Type the name in chat or tap <b>❌ Cancel</b> below:</i>"
+        "👇 <i>Type the name in chat or tap <b>⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋</b> below:</i>"
     )
     cancel_kb = get_cancel_keyboard()
     if update.callback_query:
@@ -1252,14 +1334,15 @@ async def host_bot_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not update.message or not update.message.text:
         await update.effective_message.reply_text(
-            "<blockquote>⚠️ Please enter a text name for your bot or tap <b>❌ Cancel</b>.</blockquote>",
+            "<blockquote>⚠️ Please enter a text name for your bot or tap <b>⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋</b>.</blockquote>",
             reply_markup=get_cancel_keyboard(),
             parse_mode="HTML"
         )
         return NAME
 
     text = update.message.text.strip()
-    if is_cancellation_text(text) or is_menu_navigation_text(text):
+    norm_t = normalize_user_input(text).replace("⇋", "").strip().lower()
+    if is_cancellation_text(text) or norm_t in ["cancel", "back to main menu", "main menu"]:
         context.user_data.pop('active_flow', None)
         context.user_data.pop('bot_name', None)
         context.user_data.pop('bot_token', None)
@@ -1267,10 +1350,17 @@ async def host_bot_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop('new_bot_name', None)
         context.user_data.pop('new_bot_token', None)
         context.user_data.pop('bot_uname', None)
-        if text in ["❌ Cancel", "/cancel", "cancel"] or text.lower() in ["❌ cancel", "/cancel", "cancel"]:
-            await update.message.reply_text("❌ Hosting wizard cancelled.", reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
-        else:
-            await user_text_router(update, context)
+        await update.message.reply_text("❌ Hosting wizard cancelled.", reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
+        return ConversationHandler.END
+    elif is_menu_navigation_text(text):
+        context.user_data.pop('active_flow', None)
+        context.user_data.pop('bot_name', None)
+        context.user_data.pop('bot_token', None)
+        context.user_data.pop('bot_id', None)
+        context.user_data.pop('new_bot_name', None)
+        context.user_data.pop('new_bot_token', None)
+        context.user_data.pop('bot_uname', None)
+        await user_text_router(update, context)
         return ConversationHandler.END
 
     if context.user_data.get('active_flow') != 'host':
@@ -1300,7 +1390,7 @@ async def host_bot_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<b>🔑 Telegram Bot Token:</b>\n"
         "<blockquote>Please send the API token obtained from @BotFather.\n"
         "<i>Format:</i> <code>1234567890:AAH_sampleToken...</code>\n\n"
-        "💡 <i>If your token is hardcoded in your Python script, tap <b>⏩ Skip (Auto-Detect Token)</b>.</i></blockquote>\n\n"
+        "💡 <i>If your token is hardcoded in your Python script, tap <b>⇋ 𝗦𝗸𝗶𝗽 (𝗔𝘂𝘁𝗼-𝗗𝗲𝘁𝗲𝗰𝘁 𝗧𝗼𝗸𝗲𝗻) ⇋</b>.</i></blockquote>\n\n"
         "👇 <i>Send your token as text or choose an option below:</i>"
     )
     await update.message.reply_text(text_resp, reply_markup=get_token_input_keyboard(), parse_mode="HTML")
@@ -1310,14 +1400,15 @@ async def host_bot_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not update.message or not update.message.text:
         await update.effective_message.reply_text(
-            "<blockquote>⚠️ Please send your bot API token as text or tap <b>❌ Cancel</b>.</blockquote>",
+            "<blockquote>⚠️ Please send your bot API token as text or tap <b>⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋</b>.</blockquote>",
             reply_markup=get_token_input_keyboard(),
             parse_mode="HTML"
         )
         return TOKEN
 
     text = update.message.text.strip()
-    if is_cancellation_text(text) or is_menu_navigation_text(text):
+    norm_t = normalize_user_input(text).replace("⇋", "").strip().lower()
+    if is_cancellation_text(text) or norm_t in ["cancel", "back to main menu", "main menu"]:
         context.user_data.pop('active_flow', None)
         context.user_data.pop('bot_name', None)
         context.user_data.pop('bot_token', None)
@@ -1325,10 +1416,17 @@ async def host_bot_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop('new_bot_name', None)
         context.user_data.pop('new_bot_token', None)
         context.user_data.pop('bot_uname', None)
-        if text in ["❌ Cancel", "/cancel", "cancel"] or text.lower() in ["❌ cancel", "/cancel", "cancel"]:
-            await update.message.reply_text("❌ Hosting wizard cancelled.", reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
-        else:
-            await user_text_router(update, context)
+        await update.message.reply_text("❌ Hosting wizard cancelled.", reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
+        return ConversationHandler.END
+    elif is_menu_navigation_text(text) and "skip" not in norm_t:
+        context.user_data.pop('active_flow', None)
+        context.user_data.pop('bot_name', None)
+        context.user_data.pop('bot_token', None)
+        context.user_data.pop('bot_id', None)
+        context.user_data.pop('new_bot_name', None)
+        context.user_data.pop('new_bot_token', None)
+        context.user_data.pop('bot_uname', None)
+        await user_text_router(update, context)
         return ConversationHandler.END
 
     if context.user_data.get('active_flow') != 'host':
@@ -1340,7 +1438,7 @@ async def host_bot_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     # Check for Skip (Auto-Detect Token)
-    if text == "⏩ Skip (Auto-Detect Token)" or text.lower() in ("skip", "/skip"):
+    if "skip" in norm_t or text == "⏩ Skip (Auto-Detect Token)" or text.lower() in ("skip", "/skip"):
         context.user_data['bot_token'] = 'AUTO_DETECT'
         context.user_data['new_bot_token'] = 'AUTO_DETECT'
         context.user_data['bot_uname'] = 'Auto-Detect'
@@ -1354,9 +1452,10 @@ async def host_bot_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"<blockquote>Target Bot: <b>{safe_bot_name}</b> (<code>Token: Auto-Detect</code>)</blockquote>\n\n"
             "<b>📤 Provide Python Source Code:</b>\n"
             "<blockquote><b>Option 1:</b> Upload your Python script as a <code>.py</code> document.\n"
-            "<b>Option 2:</b> Paste your Python code directly in chat.\n\n"
+            "<b>Option 2:</b> Upload a multi-file bot package as a <code>.zip</code> archive.\n"
+            "<b>Option 3:</b> Paste your Python code directly in chat.\n\n"
             "🔍 <i>Our engine will automatically extract and validate your bot token from the script.</i></blockquote>\n\n"
-            "👇 <i>Send the script file or text, or tap <b>❌ Cancel</b> to abort:</i>"
+            "👇 <i>Send the script file or text, or tap <b>⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋</b> to abort:</i>"
         )
         await update.message.reply_text(resp_text, reply_markup=get_cancel_keyboard(), parse_mode="HTML")
         return CODE
@@ -1396,8 +1495,9 @@ async def host_bot_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<blockquote>Target Bot: <b>{safe_bot_name}</b> (<code>@{safe_bot_uname}</code>)</blockquote>\n\n"
         "<b>📤 Provide Python Source Code:</b>\n"
         "<blockquote><b>Option 1:</b> Upload your Python script as a <code>.py</code> document.\n"
-        "<b>Option 2:</b> Paste your Python code directly in chat.</blockquote>\n\n"
-        "👇 <i>Send the script file or text, or tap <b>❌ Cancel</b> to abort:</i>"
+        "<b>Option 2:</b> Upload a multi-file bot package as a <code>.zip</code> archive.\n"
+        "<b>Option 3:</b> Paste your Python code directly in chat.</blockquote>\n\n"
+        "👇 <i>Send the script file or text, or tap <b>⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋</b> to abort:</i>"
     )
     await update.message.reply_text(resp_text, reply_markup=get_cancel_keyboard(), parse_mode="HTML")
     return CODE
@@ -1414,7 +1514,8 @@ async def host_bot_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if update.message.text:
         text = update.message.text.strip()
-        if is_cancellation_text(text) or is_menu_navigation_text(text):
+        norm_t = normalize_user_input(text).replace("⇋", "").strip().lower()
+        if is_cancellation_text(text) or norm_t in ["cancel", "back to main menu", "main menu"]:
             context.user_data.pop('active_flow', None)
             context.user_data.pop('bot_name', None)
             context.user_data.pop('bot_token', None)
@@ -1422,10 +1523,17 @@ async def host_bot_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.pop('new_bot_name', None)
             context.user_data.pop('new_bot_token', None)
             context.user_data.pop('bot_uname', None)
-            if text in ["❌ Cancel", "/cancel", "cancel"] or text.lower() in ["❌ cancel", "/cancel", "cancel"]:
-                await update.message.reply_text("❌ Hosting wizard cancelled.", reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
-            else:
-                await user_text_router(update, context)
+            await update.message.reply_text("❌ Hosting wizard cancelled.", reply_markup=get_main_reply_keyboard(user_id), parse_mode="HTML")
+            return ConversationHandler.END
+        elif is_menu_navigation_text(text):
+            context.user_data.pop('active_flow', None)
+            context.user_data.pop('bot_name', None)
+            context.user_data.pop('bot_token', None)
+            context.user_data.pop('bot_id', None)
+            context.user_data.pop('new_bot_name', None)
+            context.user_data.pop('new_bot_token', None)
+            context.user_data.pop('bot_uname', None)
+            await user_text_router(update, context)
             return ConversationHandler.END
 
     if context.user_data.get('active_flow') != 'host':
@@ -1482,7 +1590,7 @@ async def host_bot_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"{header}\n\n"
                     f"<blockquote>❌ <b>ZIP Archive Validation Failed:</b>\n<code>{safe_err}</code></blockquote>\n\n"
                     "<blockquote>💡 <i>Make sure your ZIP archive contains a <code>main.py</code> entry point and valid Python code.</i></blockquote>\n\n"
-                    "👇 <i>Please upload a valid <code>.zip</code> or <code>.py</code> file, or tap <b>❌ Cancel</b>:</i>"
+                    "👇 <i>Please upload a valid <code>.zip</code> or <code>.py</code> file, or tap <b>⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋</b>:</i>"
                 )
                 await update.message.reply_text(err_card, reply_markup=get_cancel_keyboard(), parse_mode="HTML")
                 return CODE
@@ -1495,7 +1603,7 @@ async def host_bot_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         f"{header}\n\n"
                         "<blockquote>⚠️ <b>Auto-Detection Failed:</b> We could not detect any Telegram bot token in your ZIP archive's <code>main.py</code>.</blockquote>\n\n"
                         "<blockquote>Please send your bot API token obtained from @BotFather manually:</blockquote>\n\n"
-                        "👇 <i>Send your token as text or tap <b>❌ Cancel</b>:</i>"
+                        "👇 <i>Send your token as text or tap <b>⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋</b>:</i>"
                     )
                     shutil.rmtree(bot_dir, ignore_errors=True)
                     await update.message.reply_text(prompt_text, reply_markup=get_cancel_keyboard(), parse_mode="HTML")
@@ -1575,7 +1683,7 @@ async def host_bot_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         f"{header}\n\n"
                         "<blockquote>⚠️ <b>Auto-Detection Failed:</b> We could not detect any Telegram bot token in your script.</blockquote>\n\n"
                         "<blockquote>Please send your bot API token obtained from @BotFather manually:</blockquote>\n\n"
-                        "👇 <i>Send your token as text or tap <b>❌ Cancel</b>:</i>"
+                        "👇 <i>Send your token as text or tap <b>⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋</b>:</i>"
                     )
                     await update.message.reply_text(prompt_text, reply_markup=get_cancel_keyboard(), parse_mode="HTML")
                     return TOKEN
@@ -1643,7 +1751,7 @@ async def host_bot_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"{header}\n\n"
                     "<blockquote>⚠️ <b>Auto-Detection Failed:</b> We could not detect any Telegram bot token in your script.</blockquote>\n\n"
                     "<blockquote>Please send your bot API token obtained from @BotFather manually:</blockquote>\n\n"
-                    "👇 <i>Send your token as text or tap <b>❌ Cancel</b>:</i>"
+                    "👇 <i>Send your token as text or tap <b>⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋</b>:</i>"
                 )
                 await update.message.reply_text(prompt_text, reply_markup=get_cancel_keyboard(), parse_mode="HTML")
                 return TOKEN
@@ -1838,7 +1946,8 @@ async def user_text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if not update.message or not update.message.text:
         return False
     raw_text = update.message.text.strip()
-    clean_text = normalize_user_input(raw_text)
+    norm_text = normalize_user_input(raw_text)
+    clean_text = norm_text.replace("⇋", "").strip()
     clean_lower = clean_text.lower()
     user_id = update.effective_user.id
 
@@ -1851,12 +1960,12 @@ async def user_text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await update.message.reply_text(msg, parse_mode="HTML")
         return True
 
-    # Back / Home navigation
+    # Back / Home / Refresh navigation
     if (
         clean_lower in ["main menu", "back to main menu", "refresh", "/start", "/menu"]
         or "back to main menu" in clean_lower
         or "main menu" in clean_lower
-        or raw_text in ["🏠 Main Menu", "🔙 Back to Main Menu", "🔄 Refresh", "🔙 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂", "🏠 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂", "🔄 𝗥𝗲𝗳𝗿𝗲𝘀𝗵"]
+        or clean_lower == "refresh"
     ):
         await start_command(update, context)
         return True
@@ -1866,75 +1975,69 @@ async def user_text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         clean_lower in ["my hosted bots", "back to my bots", "/mybots", "/bots"]
         or "my hosted bots" in clean_lower
         or "back to my bots" in clean_lower
-        or raw_text in ["🤖 My Hosted Bots", "🔙 Back to My Bots", "🤖 𝗠𝘆 𝗛𝗼𝘀𝘁𝗲𝗱 𝗕𝗼𝘁𝘀", "🔙 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝘆 𝗕𝗼𝘁𝘀"]
     ):
         await show_my_bots(update, context, page=0)
         return True
 
-    # Host New Bot
+    # Host New Bot / Host Another Bot
     if (
         clean_lower in ["host new bot", "host custom bot", "host another bot"]
         or "host new bot" in clean_lower
         or "host another bot" in clean_lower
         or "host custom bot" in clean_lower
-        or raw_text in ["➕ Host New Bot", "➕ Host Custom Bot", "➕ Host Another Bot", "➕ 𝗛𝗼𝘀𝘁 𝗡𝗲𝘄 𝗕𝗼𝘁", "➕ 𝗛𝗼𝘀𝘁 𝗔𝗻𝗼𝘁𝗵𝗲𝗿 𝗕𝗼𝘁"]
     ):
         await host_bot_start(update, context)
         return True
 
     # Pagination
-    if "prev bots" in clean_lower or raw_text in ["⬅️ Prev Bots", "⬅️ 𝗣𝗿𝗲𝘃 𝗕𝗼𝘁𝘀"]:
+    if clean_lower in ["prev bots", "previous bots"] or "prev bots" in clean_lower:
         page = max(0, context.user_data.get('bots_page', 0) - 1)
         await show_my_bots(update, context, page=page)
         return True
-    if "next bots" in clean_lower or raw_text in ["Next Bots ➡️", "𝗡𝗲𝘅𝘁 𝗕𝗼𝘁𝘀 ➡️"]:
+    if clean_lower in ["next bots"] or "next bots" in clean_lower:
         page = context.user_data.get('bots_page', 0) + 1
         await show_my_bots(update, context, page=page)
         return True
 
-    # Quick Template Deploy
+    # Quick Templates
     if (
-        clean_lower in ["quick templates", "quick template deploy", "/templates"]
+        clean_lower in ["quick templates", "quick template deploy", "quick template", "/templates"]
         or "quick template" in clean_lower
         or "quick templates" in clean_lower
-        or raw_text in ["⚡ Quick Templates", "⚡ Quick Template Deploy", "⚡ 𝗤𝘂𝗶𝗰𝗸 𝗧𝗲𝗺𝗽𝗹𝗮𝘁𝗲𝘀", "⚡ 𝗤𝘂𝗶𝗰𝗸 𝗧𝗲𝗺𝗽𝗹𝗮𝘁𝗲 𝗗𝗲𝗽𝗹𝗼𝘆"]
     ):
         await show_templates_menu(update, context)
         return True
 
     # Account & Slots
     if (
-        clean_lower in ["my account & slots", "my account", "/account"]
+        clean_lower in ["my account & slots", "my account", "account & slots", "/account", "/slots"]
         or "my account" in clean_lower
         or "account & slots" in clean_lower
-        or raw_text in ["📊 My Account & Slots", "📊 𝗠𝘆 𝗔𝗰𝗰𝗼𝘂𝗻𝘁 & 𝗦𝗹𝗼𝘁𝘀"]
     ):
         await show_account_info(update, context)
         return True
 
     # Referral Hub & Slot Rewards
     if (
-        clean_lower in ["refer & earn free slots", "refer & earn slots", "refer & earn", "referral rewards", "/referral", "/ref"]
+        clean_lower in ["refer & earn slots", "refer & earn free slots", "refer & earn", "referral rewards", "/referral", "/ref"]
         or "refer & earn" in clean_lower
-        or raw_text in ["🎁 Refer & Earn Free Slots", "🎁 Refer & Earn Slots", "🎁 Refer & Earn", "🎁 𝗥𝗲𝗳𝗲𝗿 & 𝗘𝗮𝗿𝗻 𝗦𝗹𝗼𝘁𝘀", "🎁 𝗥𝗲𝗳𝗲𝗿 & 𝗘𝗮𝗿𝗻 𝗙𝗿𝗲𝗲 𝗦𝗹𝗼𝘁𝘀"]
+        or "referral" in clean_lower
     ):
         await show_referral_hub(update, context)
         return True
 
     # Help & Guidelines
     if (
-        clean_lower in ["help & guidelines", "help", "/help", "guidelines"]
+        clean_lower in ["help & guidelines", "help", "guidelines", "/help"]
         or "help & guidelines" in clean_lower
-        or raw_text in ["❓ Help & Guidelines", "❓ 𝗛𝗲𝗹𝗽 & 𝗚𝘂𝗶𝗱𝗲𝗹𝗶𝗻𝗲𝘀"]
     ):
         await show_help(update, context)
         return True
 
     # Customer Support Desk
     if (
-        clean_lower in ["customer support", "support", "/support", "/helpdesk", "helpdesk"]
+        clean_lower in ["customer support", "support", "helpdesk", "/support", "/helpdesk"]
         or "customer support" in clean_lower
-        or raw_text in ["💬 Customer Support", "💬 𝗖𝘂𝘀𝘁𝗼𝗺𝗲𝗿 𝗦𝘂𝗽𝗽𝗼𝗿𝘁"]
     ):
         await show_support_desk(update, context)
         return True
@@ -1943,14 +2046,22 @@ async def user_text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if (
         clean_lower in ["export backup", "export data backup", "/backup", "/export"]
         or "export backup" in clean_lower
-        or raw_text in ["💾 Export Backup", "💾 Export Data Backup", "💾 𝗘𝘅𝗽𝗼𝗿𝘁 𝗕𝗮𝗰𝗸𝘂𝗽", "💾 𝗘𝘅𝗽𝗼𝗿𝘁 𝗗𝗮𝘁𝗮 𝗕𝗮𝗰𝗸𝘂𝗽"]
     ):
         await export_bot_data_handler(update, context)
         return True
 
-    # Bot Item Selection: e.g. "🟢 My Bot [#a1b2c3d4]"
-    bot_select_match = re.search(r"\[#([a-zA-Z0-9_-]+)\]$", clean_text) or re.search(r"\[#([a-zA-Z0-9_-]+)\]$", raw_text)
-    action_keywords = ["start", "stop", "restart", "logs", "delete", "env vars", "export backup", "backup"]
+    # Check for template clicks from templates menu
+    for k, v in TEMPLATES.items():
+        t_clean = normalize_user_input(v['name']).replace("⇋", "").strip().lower()
+        t_raw_clean = re.sub(r'^[^\w\s]+', '', v['name']).strip().lower()
+        if clean_lower in (t_clean, t_raw_clean) or clean_lower.startswith(t_clean) or clean_lower.startswith(t_raw_clean) or t_clean in clean_lower or t_raw_clean in clean_lower:
+            context.user_data['deploy_template_key'] = k
+            await template_select_start(update, context)
+            return True
+
+    # Bot Item Selection: e.g. "⇋ My Bot [#a1b2c3d4] ⇋"
+    bot_select_match = re.search(r"\[#([a-zA-Z0-9_-]+)\]", clean_text) or re.search(r"\[#([a-zA-Z0-9_-]+)\]", raw_text)
+    action_keywords = ["start", "stop", "restart", "logs", "delete", "env vars", "export backup", "backup", "add variable", "delete variable", "confirm delete", "cancel delete"]
     if bot_select_match and not any(k in clean_lower for k in action_keywords):
         bot_id = bot_select_match.group(1)
         await show_bot_details(update, context, bot_id)
@@ -2012,7 +2123,7 @@ async def export_bot_data_handler(update: Update, context: ContextTypes.DEFAULT_
             bot_id = user_bots[0]['bot_id']
         else:
             await update.effective_message.reply_text(
-                "<blockquote>⚠️ <b>Bot ID not specified:</b> Please select a bot from <b>🤖 My Hosted Bots</b> first.</blockquote>",
+                "<blockquote>⚠️ <b>Bot ID not specified:</b> Please select a bot from <b>⇋ 𝗠𝘆 𝗛𝗼𝘀𝘁𝗲𝗱 𝗕𝗼𝘁𝘀 ⇋</b> first.</blockquote>",
                 reply_markup=get_my_bots_reply_keyboard(user_bots),
                 parse_mode="HTML"
             )
@@ -2090,7 +2201,7 @@ async def user_env_start(update: Update, context: ContextTypes.DEFAULT_TYPE, bot
             bot_id = user_bots[0]['bot_id']
         else:
             await update.effective_message.reply_text(
-                "<blockquote>⚠️ Please select a bot from <b>🤖 My Hosted Bots</b> first to manage environment variables.</blockquote>",
+                "<blockquote>⚠️ Please select a bot from <b>⇋ 𝗠𝘆 𝗛𝗼𝘀𝘁𝗲𝗱 𝗕𝗼𝘁𝘀 ⇋</b> first to manage environment variables.</blockquote>",
                 reply_markup=get_my_bots_reply_keyboard(user_bots),
                 parse_mode="HTML"
             )
@@ -2129,9 +2240,9 @@ async def user_env_start(update: Update, context: ContextTypes.DEFAULT_TYPE, bot
         "<b>📦 Configured Variables:</b>\n"
         f"<blockquote>{vars_display}</blockquote>\n\n"
         "<b>⚙️ Available Actions:</b>\n"
-        "<blockquote>• <b>➕ Add Variable:</b> Save a new KEY=VALUE pair\n"
-        "• <b>🗑️ Delete Variable:</b> Remove a variable key\n"
-        "• <b>🔙 Back to Bot Inspector:</b> Return to bot details</blockquote>\n\n"
+        "<blockquote>• <b>⇋ 𝗔𝗱𝗱 𝗩𝗮𝗿𝗶𝗮𝗯𝗹𝗲 ⇋:</b> Save a new KEY=VALUE pair\n"
+        "• <b>⇋ 𝗗𝗲𝗹𝗲𝘁𝗲 𝗩𝗮𝗿𝗶𝗮𝗯𝗹𝗲 ⇋:</b> Remove a variable key\n"
+        "• <b>⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗕𝗼𝘁 ⇋:</b> Return to bot details</blockquote>\n\n"
         "💡 <i>Variables are automatically injected on next process start/restart.</i>"
     )
 
@@ -2151,11 +2262,11 @@ async def user_env_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if not update.message or not update.message.text:
         return U_ENV_CHOICE
     raw_text = update.message.text.strip()
-    clean_text = normalize_user_input(raw_text)
+    clean_text = normalize_user_input(raw_text).replace("⇋", "").strip()
     clean_lower = clean_text.lower()
     bot_id = context.user_data.get('env_bot_id')
 
-    if is_cancellation_text(raw_text) or "back to bot inspector" in clean_lower or "back to bot details" in clean_lower or "back to my bots" in clean_lower or "main menu" in clean_lower:
+    if is_cancellation_text(raw_text) or "back to bot" in clean_lower or "back to bot inspector" in clean_lower or "back to bot details" in clean_lower or "back to my bots" in clean_lower or "main menu" in clean_lower or clean_lower == "cancel":
         return await cancel_user_env(update, context)
 
     if "add variable" in clean_lower or "set variable" in clean_lower:
@@ -2163,7 +2274,7 @@ async def user_env_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             "<b>➕ ADD ENVIRONMENT VARIABLE</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "<blockquote>Please send the variable <b>KEY name</b> (e.g. <code>OPENAI_API_KEY</code>, <code>DATABASE_URL</code>, <code>ADMIN_ID</code>):</blockquote>\n\n"
-            "👇 <i>Send the key name or tap <b>❌ Cancel</b>:</i>",
+            "👇 <i>Send the key name or tap <b>⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋</b>:</i>",
             reply_markup=get_cancel_keyboard(),
             parse_mode="HTML"
         )
@@ -2174,7 +2285,7 @@ async def user_env_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             "<b>🗑️ DELETE ENVIRONMENT VARIABLE</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "<blockquote>Please send the exact <b>KEY name</b> of the variable you want to delete:</blockquote>\n\n"
-            "👇 <i>Send the key name or tap <b>❌ Cancel</b>:</i>",
+            "👇 <i>Send the key name or tap <b>⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋</b>:</i>",
             reply_markup=get_cancel_keyboard(),
             parse_mode="HTML"
         )
@@ -2187,9 +2298,10 @@ async def user_env_add_key(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if not update.message or not update.message.text:
         return U_ENV_ADD_KEY
     text = update.message.text.strip()
+    norm_t = normalize_user_input(text).replace("⇋", "").strip().lower()
     bot_id = context.user_data.get('env_bot_id')
 
-    if is_cancellation_text(text):
+    if is_cancellation_text(text) or norm_t in ["cancel", "back", "back to bot"]:
         return await user_env_start(update, context, bot_id=bot_id)
 
     # Check if user sent KEY=VALUE directly in one message
@@ -2227,7 +2339,7 @@ async def user_env_add_key(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         f"<b>🔑 VARIABLE VALUE FOR <code>{html.escape(key_name)}</code></b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         f"<blockquote>Please send the <b>VALUE</b> for <code>{html.escape(key_name)}</code>:</blockquote>\n\n"
-        "👇 <i>Send the value or tap <b>❌ Cancel</b>:</i>",
+        "👇 <i>Send the value or tap <b>⇋ 𝗖𝗮𝗻𝗰𝗲𝗹 ⇋</b>:</i>",
         reply_markup=get_cancel_keyboard(),
         parse_mode="HTML"
     )
@@ -2237,10 +2349,11 @@ async def user_env_add_val(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if not update.message or not update.message.text:
         return U_ENV_ADD_VAL
     val_str = update.message.text.strip()
+    norm_t = normalize_user_input(val_str).replace("⇋", "").strip().lower()
     bot_id = context.user_data.get('env_bot_id')
     key_name = context.user_data.pop('env_temp_key', None)
 
-    if is_cancellation_text(val_str):
+    if is_cancellation_text(val_str) or norm_t in ["cancel", "back", "back to bot"]:
         return await user_env_start(update, context, bot_id=bot_id)
 
     if not key_name:
@@ -2259,9 +2372,10 @@ async def user_env_del_key(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if not update.message or not update.message.text:
         return U_ENV_DEL_KEY
     text = update.message.text.strip()
+    norm_t = normalize_user_input(text).replace("⇋", "").strip().lower()
     bot_id = context.user_data.get('env_bot_id')
 
-    if is_cancellation_text(text):
+    if is_cancellation_text(text) or norm_t in ["cancel", "back", "back to bot"]:
         return await user_env_start(update, context, bot_id=bot_id)
 
     key_name = text.strip()
@@ -2293,15 +2407,15 @@ async def cancel_user_env(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 user_env_conv = ConversationHandler(
     entry_points=[
-        MessageHandler(filters.Regex(r"^(?:🔑\s*Manage Env Vars|🔑\s*Env Vars|🔑\s*𝗠𝗮𝗻𝗮𝗴𝗲 𝗘𝗻𝘃 𝗩𝗮𝗿𝘀).*"), user_env_start),
+        MessageHandler(filters.Regex(r"(?i)^(?:.*Manage Env Vars|.*Env Vars|.*𝗠𝗮𝗻𝗮𝗴𝗲 𝗘𝗻𝘃 𝗩𝗮𝗿𝘀).*"), user_env_start),
         CallbackQueryHandler(user_env_start, pattern=r"^ubot_env_"),
         CommandHandler("env", user_env_start)
     ],
     states={
         U_ENV_CHOICE: [
-            MessageHandler(filters.Regex(r"^(?:➕\s*Add Variable|➕\s*Set Variable|➕\s*𝗔𝗱𝗱 𝗩𝗮𝗿𝗶𝗮𝗯𝗹𝗲)$"), user_env_choice),
-            MessageHandler(filters.Regex(r"^(?:🗑️\s*Delete Variable|🗑️\s*Remove Variable|🗑️\s*𝗗𝗲𝗹𝗲𝘁𝗲 𝗩𝗮𝗿𝗶𝗮𝗯𝗹𝗲)$"), user_env_choice),
-            MessageHandler(filters.Regex(r"^(?:🔙\s*Back to Bot Inspector|🔙\s*Back to Bot Details|🔙\s*𝗕𝗮𝗰𝗸 𝘁𝗼 𝗕𝗼𝘁 𝗜𝗻𝘀𝗽𝗲𝗰𝘁𝗼𝗿)$"), cancel_user_env),
+            MessageHandler(filters.Regex(r"(?i)^(?:.*Add Variable|.*Set Variable|.*𝗔𝗱𝗱 𝗩𝗮𝗿𝗶𝗮𝗯𝗹𝗲).*"), user_env_choice),
+            MessageHandler(filters.Regex(r"(?i)^(?:.*Delete Variable|.*Remove Variable|.*𝗗𝗲𝗹𝗲𝘁𝗲 𝗩𝗮𝗿𝗶𝗮𝗯𝗹𝗲).*"), user_env_choice),
+            MessageHandler(filters.Regex(r"(?i)^(?:.*Back to Bot|.*Back to Bot Inspector|.*Back to Bot Details|.*𝗕𝗮𝗰𝗸 𝘁𝗼 𝗕𝗼𝘁).*"), cancel_user_env),
             MessageHandler(filters.TEXT & ~filters.COMMAND, user_env_choice)
         ],
         U_ENV_ADD_KEY: [
@@ -2316,7 +2430,7 @@ user_env_conv = ConversationHandler(
     },
     fallbacks=[
         CommandHandler("cancel", cancel_user_env),
-        MessageHandler(filters.Regex(r"(?i)^(?:❌\s*Cancel|❌\s*𝗖𝗮𝗻𝗰𝗲𝗹|/cancel|cancel|🔙\s*Back to Bot Inspector|🔙\s*Back to Bot Details|🔙\s*Back to My Bots|🔙\s*Back to Main Menu|🏠\s*Main Menu|🔙\s*𝗕𝗮𝗰𝗸 𝘁𝗼 𝗕𝗼𝘁 𝗜𝗻𝘀𝗽𝗲𝗰𝘁𝗼𝗿|🔙\s*𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝘆 𝗕𝗼𝘁𝘀|🔙\s*𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂|🏠\s*𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂)$"), cancel_user_env),
+        MessageHandler(filters.Regex(r"(?i)^(?:.*Cancel|.*𝗖𝗮𝗻𝗰𝗲𝗹|/cancel|cancel|.*Back to Bot|.*Back to My Bots|.*Back to Main Menu|.*Main Menu).*"), cancel_user_env),
         CallbackQueryHandler(cancel_user_env, pattern="^(cancel_env|user_menu)$")
     ],
     conversation_timeout=600,
@@ -2339,11 +2453,10 @@ async def handle_direct_document_upload(update: Update, context: ContextTypes.DE
             "<b>📦 PROJECT FILE / ARCHIVE RECEIVED</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"<blockquote>File: <code>{html.escape(fname)}</code>\n\n"
-            "To deploy this Python project as a 24/7 cloud bot instance, tap <b>➕ Host New Bot</b> to launch the deployment wizard!</blockquote>"
+            "To deploy this Python project as a 24/7 cloud bot instance, tap <b>⇋ 𝗛𝗼𝘀𝘁 𝗡𝗲𝘄 𝗕𝗼𝘁 ⇋</b> to launch the deployment wizard!</blockquote>"
         )
         await update.message.reply_text(
             text,
             reply_markup=get_main_reply_keyboard(user_id),
             parse_mode="HTML"
         )
-
