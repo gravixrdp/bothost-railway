@@ -226,24 +226,44 @@ async def check_user_subscription(bot, user_id: int) -> tuple[bool, list]:
 
     return len(unjoined) == 0, unjoined
 
-def get_force_sub_keyboard(unjoined_channels: list) -> InlineKeyboardMarkup:
+def get_force_sub_keyboard(unjoined_channels: list = None) -> InlineKeyboardMarkup:
+    all_channels = database.get_required_channels() if hasattr(database, "get_required_channels") else []
+    if not all_channels:
+        all_channels = [
+            {"channel_id": "@GravixRDP", "title": "GravixRDP Official", "invite_link": "https://t.me/GravixRDP"},
+            {"channel_id": "https://t.me/+lD-MufapiQVhMGFl", "title": "Gravix Updates", "invite_link": "https://t.me/+lD-MufapiQVhMGFl"}
+        ]
     keyboard = []
-    for ch in unjoined_channels:
+    for ch in all_channels:
         title = ch.get("title", "Channel") if isinstance(ch, dict) else ch["title"]
         link = ch.get("invite_link", "") if isinstance(ch, dict) else ch["invite_link"]
+        if not link:
+            raw_cid = ch.get("channel_id", "") if isinstance(ch, dict) else ch["channel_id"]
+            if str(raw_cid).startswith("@"):
+                link = f"https://t.me/{str(raw_cid).lstrip('@')}"
+            else:
+                link = str(raw_cid)
         keyboard.append([InlineKeyboardButton(f"📢 Join {title}", url=link)])
 
     keyboard.append([InlineKeyboardButton("✅ Verify Membership", callback_data="verify_fsub")])
     return InlineKeyboardMarkup(keyboard)
 
-async def send_force_sub_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE, unjoined_channels: list):
+async def send_force_sub_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE, unjoined_channels: list = None):
     header = make_header_card("MANDATORY CHANNEL JOIN", "Official Community Verification")
+    all_channels = database.get_required_channels() if hasattr(database, "get_required_channels") else []
+    channel_list_text = ""
+    for ch in all_channels:
+        title = ch.get("title", "Channel") if isinstance(ch, dict) else ch["title"]
+        channel_list_text += f"• <b>{html.escape(title)}</b>\n"
+
     text = (
         f"{header}\n\n"
         "<blockquote>To access <b>Gravix-Host</b> and deploy your Telegram bots 24/7, "
-        "you must join our official community channels first.</blockquote>\n\n"
-        "<b>📢 Verification Steps:</b>\n"
-        "<blockquote>1. Click and join each official channel listed below.\n"
+        "you must subscribe to <b>ALL</b> our official community channels below:</blockquote>\n\n"
+        f"<b>📢 Required Channels:</b>\n"
+        f"<blockquote>{channel_list_text}</blockquote>\n\n"
+        "<b>👉 Verification Steps:</b>\n"
+        "<blockquote>1. Click and join each official channel below.\n"
         "2. Tap the <b>✅ Verify Membership</b> button to activate your account.</blockquote>"
     )
     keyboard = get_force_sub_keyboard(unjoined_channels)

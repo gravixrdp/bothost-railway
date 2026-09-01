@@ -515,10 +515,6 @@ def main():
         user_text_router
     ))
     application.add_handler(MessageHandler(
-        NormalizedRegex(r"^(?:[🟢🔴⚪⇋⇆⇌⇄]\s*)*.+\[#([a-zA-Z0-9_-]+)\](?:\s*[⇋⇆⇌⇄])?$"),
-        show_bot_details
-    ))
-    application.add_handler(MessageHandler(
         NormalizedRegex(r"^(?:[▶️⏹️🔄📜🗑️🔑⇋⇆⇌⇄]\s*)?(?:Start Bot|Stop Bot|Restart Bot|View Logs|Delete Bot|Manage Env Vars|Env Vars|Start|Stop|Restart|Logs|Delete|𝗦𝘁𝗮𝗿𝘁 𝗕𝗼𝘁|𝗦𝘁𝗼𝗽 𝗕𝗼𝘁|𝗥𝗲𝘀𝘁𝗮𝗿𝘁 𝗕𝗼𝘁|𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀|𝗗𝗲𝗹𝗲𝘁𝗲 𝗕𝗼𝘁|𝗠𝗮𝗻𝗮𝗴𝗲 𝗘𝗻𝘃 𝗩𝗮𝗿𝘀|𝗘𝗻𝘃 𝗩𝗮𝗿𝘀)\s*(?:[⇋⇆⇌⇄]\s*)?\[#([a-zA-Z0-9_-]+)\](?:\s*[⇋⇆⇌⇄])?$"),
         handle_bot_action
     ))
@@ -529,6 +525,10 @@ def main():
     application.add_handler(MessageHandler(
         NormalizedRegex(r"^(?:[💾⇋⇆⇌⇄]\s*)?(?:Export Backup|Export Data Backup|Export Data|Backup|𝗘𝘅𝗽𝗼𝗿𝘁 𝗕𝗮𝗰𝗸𝘂𝗽|𝗘𝘅𝗽𝗼𝗿𝘁 𝗗𝗮𝘁𝗮 𝗕𝗮𝗰𝗸𝘂𝗽)\s*(?:[⇋⇆⇌⇄]\s*)?(?:\[#([a-zA-Z0-9_-]+)\])?(?:\s*[⇋⇆⇌⇄])?$"),
         export_bot_data_handler
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:[🟢🔴⚪⇋⇆⇌⇄]\s*)*.+\[#([a-zA-Z0-9_-]+)\](?:\s*[⇋⇆⇌⇄])?$"),
+        show_bot_details
     ))
 
     # 5. Admin Panel Open / Navigation / Stats
