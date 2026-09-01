@@ -13,6 +13,7 @@ from telegram.ext import (
     MessageHandler,
     ConversationHandler,
     TypeHandler,
+    ChatMemberHandler,
     filters,
     ContextTypes
 )
@@ -334,6 +335,23 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Exception while handling an update: {context.error}", exc_info=context.error)
 
 
+async def track_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Auto-captures channel numeric ID when @gravixhostbot is added as Administrator."""
+    if not update.my_chat_member:
+        return
+    chat = update.my_chat_member.chat
+    new_status = update.my_chat_member.new_chat_member.status
+    if new_status in ("administrator", "creator"):
+        chat_id = str(chat.id)
+        title = chat.title or "Channel"
+        invite_link = chat.invite_link or (f"https://t.me/{chat.username}" if chat.username else "")
+        logger.info(f"Bot added as Admin to {title} (ID: {chat_id}, Link: {invite_link})")
+        if hasattr(database, "add_required_channel"):
+            try:
+                database.add_required_channel(channel_id=chat_id, title=title, invite_link=invite_link)
+            except Exception as e:
+                logger.warning(f"Error registering channel {chat_id}: {e}")
+
 def main():
     if not BOT_TOKEN or BOT_TOKEN == "DISABLED":
         logger.error("BOT_TOKEN environment variable is not valid! Exiting.")
@@ -361,6 +379,7 @@ def main():
     # Pre-Update Global Hook (Group -1: Auto-Delete Old Messages)
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     application.add_handler(TypeHandler(Update, pre_update_tracker), group=-1)
+    application.add_handler(ChatMemberHandler(track_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # Conversation Handlers

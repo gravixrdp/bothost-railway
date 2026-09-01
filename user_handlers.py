@@ -208,21 +208,11 @@ async def check_user_subscription(bot, user_id: int) -> tuple[bool, list]:
             member = await bot.get_chat_member(chat_id=cid_param, user_id=user_id)
             if member.status in valid_statuses:
                 continue
-            elif member.status in {"left", "kicked"}:
-                unjoined.append(ch)
             else:
                 unjoined.append(ch)
         except Exception as e:
-            err_text = str(e).lower()
-            logger.info(f"FSub check for user {user_id} in {cid_str}: {e}")
-            if "chat not found" in err_text or "bot is not a member" in err_text or "chat_admin_required" in err_text or "not enough rights" in err_text or "bot was kicked" in err_text or "bot was blocked" in err_text:
-                # Bot cannot check this chat, do NOT block user!
-                logger.info(f"Cannot resolve chat {cid_str} via Bot API, skipping enforcement.")
-                continue
-            elif "user not found" in err_text or "participant" in err_text or "user_not_participant" in err_text or "not a member" in err_text:
-                unjoined.append(ch)
-            else:
-                unjoined.append(ch)
+            logger.info(f"FSub verification check for user {user_id} in {cid_str}: {e}")
+            unjoined.append(ch)
 
     return len(unjoined) == 0, unjoined
 
