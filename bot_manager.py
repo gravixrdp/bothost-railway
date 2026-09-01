@@ -3,9 +3,13 @@ import os
 import sys
 import time
 import logging
+import html
+import tempfile
+import zipfile
+import psutil
 from datetime import datetime
 from collections import deque
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Any
 import database
 from config import DATA_DIR, MAX_LOG_LINES
 
@@ -17,6 +21,11 @@ class BotProcessManager:
         self.log_buffers: Dict[str, deque] = {}
         self.log_tasks: Dict[str, asyncio.Task] = {}
         self.restart_history: Dict[str, deque] = {}
+        self._telegram_bot: Optional[Any] = None
+
+    def set_telegram_bot_instance(self, bot: Any):
+        """Sets the Telegram bot instance used for sending notification DMs."""
+        self._telegram_bot = bot
 
     def get_log_file_path(self, bot_id: str) -> str:
         bot_id = str(bot_id).strip()
@@ -100,6 +109,18 @@ class BotProcessManager:
 
         working_dir = os.path.dirname(script_path)
         env = os.environ.copy()
+
+        # Load custom environment variables from database
+        try:
+            if hasattr(database, "get_bot_env_vars"):
+                custom_env = database.get_bot_env_vars(bot_id) or {}
+                if isinstance(custom_env, dict):
+                    for k, v in custom_env.items():
+                        env[str(k)] = str(v)
+        except Exception as e:
+            logger.error(f"Error loading custom env vars for bot {bot_id}: {e}")
+
+        # Standard system-injected environment variables
         env["BOT_TOKEN"] = bot_data['bot_token']
         env["OWNER_ID"] = str(bot_data['user_id'])
         env["PYTHONUNBUFFERED"] = "1"
@@ -212,13 +233,125 @@ class BotProcessManager:
         process = self.active_processes.get(bot_id)
         return process is not None and process.returncode is None
 
-    async def watchdog_loop(self):
+    def get_bot_process_metrics(self, bot_id: str) -> dict:
+        """Retrieves real-time CPU & RAM telemetry metrics for a running bot process."""
+        bot_id = str(bot_id).strip()
+        process = self.active_processes.get(bot_id)
+        if process and process.returncode is None and process.pid:
+            try:
+                p = psutil.Process(process.pid)
+                cpu_percent = p.cpu_percent(interval=None)
+                ram_mb = p.memory_info().rss / (1024 * 1024)
+                return {
+                    'is_running': True,
+                    'pid': process.pid,
+                    'cpu_percent': round(cpu_percent, 1),
+                    'ram_mb': round(ram_mb, 1)
+                }
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                pass
+            except Exception as e:
+                logger.error(f"Error getting process metrics for bot {bot_id}: {e}")
+        return {'is_running': False, 'pid': None, 'cpu_percent': 0.0, 'ram_mb': 0.0}
+
+    def create_bot_backup_zip(self, bot_id: str, user_id: int) -> Optional[str]:
+        """Creates a .zip archive of the hosted bot's data directory and returns its absolute path."""
+        bot_id = str(bot_id).strip()
+        try:
+            uid = int(user_id)
+        except (ValueError, TypeError):
+            logger.error(f"Invalid user_id provided for backup: {user_id}")
+            return None
+
+        bot_dir = os.path.join(DATA_DIR, "bots", f"{uid}_{bot_id}")
+        if not os.path.exists(bot_dir) or not os.path.isdir(bot_dir):
+            bot_data = database.get_bot(bot_id)
+            if bot_data and bot_data.get('script_path'):
+                alt_dir = os.path.dirname(bot_data['script_path'])
+                if os.path.exists(alt_dir) and os.path.isdir(alt_dir):
+                    bot_dir = alt_dir
+                else:
+                    return None
+            else:
+                return None
+
+        try:
+            temp_dir = tempfile.gettempdir()
+            zip_filename = f"backup_{uid}_{bot_id}_{int(time.time())}.zip"
+            zip_path = os.path.join(temp_dir, zip_filename)
+
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+                for root, dirs, files in os.walk(bot_dir):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        arcname = os.path.relpath(file_path, start=bot_dir)
+                        zipf.write(file_path, arcname=arcname)
+
+            return os.path.abspath(zip_path)
+        except Exception as e:
+            logger.error(f"Failed to create backup zip for bot {bot_id}: {e}")
+            return None
+
+    async def _send_crash_alert(
+        self,
+        bot_id: str,
+        bot_data: Optional[Dict[str, Any]] = None,
+        restarts: Optional[int] = None,
+        action: Optional[str] = None,
+        status_text: Optional[str] = None,
+        bot: Any = None
+    ):
+        """Sends an alert DM to the bot owner when an unexpected crash or crash-loop occurs."""
+        tg_bot = bot or self._telegram_bot
+        if not tg_bot:
+            return
+
+        bot_rec = bot_data or database.get_bot(bot_id)
+        if not bot_rec:
+            return
+
+        owner_id = bot_rec.get('user_id')
+        if not owner_id:
+            return
+
+        bot_name = bot_rec.get('bot_name') or f"Bot #{bot_id}"
+        status_display = status_text or "Unexpected Process Termination"
+        if action:
+            action_display = action
+        elif restarts is not None:
+            action_display = f"Watchdog restart triggered (Attempt {restarts}/5)"
+        else:
+            action_display = "Unexpected process exit."
+
+        alert_text = (
+            "<b>⚠️ GRAVIX-HOST INSTANCE CRASH ALERT</b>\n"
+            "<i>Automatic Diagnostics Notification</i>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "<blockquote>\n"
+            f"🤖 <b>Bot Instance:</b> {html.escape(str(bot_name))} (<code>{html.escape(str(bot_id))}</code>)\n"
+            f"⚡ <b>Status:</b> {html.escape(str(status_display))}\n"
+            f"🔄 <b>Action:</b> {html.escape(str(action_display))}\n"
+            "💡 <b>Recommendation:</b> Check your script logs in <b>🤖 My Hosted Bots</b> for tracebacks.\n"
+            "</blockquote>"
+        )
+
+        try:
+            await tg_bot.send_message(chat_id=owner_id, text=alert_text, parse_mode="HTML")
+            logger.info(f"Sent crash alert DM to owner {owner_id} for bot {bot_id}.")
+        except Exception as e:
+            logger.warning(f"Failed to send crash alert DM to user {owner_id} for bot {bot_id}: {e}")
+
+    async def watchdog_loop(self, bot: Any = None):
         """Monitors running child processes and marks crashed ones."""
+        if bot is not None:
+            self._telegram_bot = bot
+
         while True:
             try:
+                tg_bot = bot or self._telegram_bot
                 for bot_id, process in list(self.active_processes.items()):
                     if process.returncode is not None:
-                        # Process exited
+                        # Process exited unexpectedly
                         self.active_processes.pop(bot_id, None)
                         bot_data = database.get_bot(bot_id)
                         if bot_data and bot_data.get('auto_restart') and bot_data['status'] in ('RUNNING', 'RESTARTING'):
@@ -232,11 +365,27 @@ class BotProcessManager:
                                 database.update_bot_status(bot_id, "CRASHED")
                                 self._append_system_log(bot_id, "⛔ [SYSTEM] Crash loop detected (5+ restarts in <120s). Auto-restart disabled.")
                                 logger.error(f"Bot {bot_id} is crash-looping (5+ restarts in <120s). Auto-restart disabled; marked CRASHED.")
+                                if tg_bot:
+                                    await self._send_crash_alert(
+                                        bot_id=bot_id,
+                                        bot_data=bot_data,
+                                        status_text="Unexpected Process Termination",
+                                        action="Crash-loop limit reached (5 restarts in <120s). Auto-restart disabled.",
+                                        bot=tg_bot
+                                    )
                                 continue
                             hist.append(now)
-                            self._append_system_log(bot_id, f"🔄 [SYSTEM] Process exited (code {process.returncode}). Auto-restarting ({len(hist)}/5)...")
-                            logger.warning(f"Bot {bot_id} exited with code {process.returncode}. Auto-restarting ({len(hist)}/5)...")
+                            restarts = len(hist)
+                            self._append_system_log(bot_id, f"🔄 [SYSTEM] Process exited (code {process.returncode}). Auto-restarting ({restarts}/5)...")
+                            logger.warning(f"Bot {bot_id} exited with code {process.returncode}. Auto-restarting ({restarts}/5)...")
                             database.update_bot_status(bot_id, "RESTARTING")
+                            if tg_bot:
+                                await self._send_crash_alert(
+                                    bot_id=bot_id,
+                                    bot_data=bot_data,
+                                    restarts=restarts,
+                                    bot=tg_bot
+                                )
                             await asyncio.sleep(2)
                             await self.start_bot(bot_id)
                         else:
@@ -245,9 +394,42 @@ class BotProcessManager:
                             database.update_bot_status(bot_id, status)
                             self._append_system_log(bot_id, f"ℹ️ [SYSTEM] Process exited with status code {process.returncode} (marked {status}).")
                             logger.info(f"Bot {bot_id} exited with status {process.returncode}.")
+                            if tg_bot and process.returncode != 0:
+                                await self._send_crash_alert(
+                                    bot_id=bot_id,
+                                    bot_data=bot_data,
+                                    status_text="Unexpected Process Termination",
+                                    action="Auto-restart is disabled. Process marked as CRASHED.",
+                                    bot=tg_bot
+                                )
             except Exception as e:
                 logger.error(f"Watchdog error: {e}")
             await asyncio.sleep(5)
 
+    def start_watchdog(self, bot: Any = None):
+        """Starts the background watchdog loop task."""
+        if bot is not None:
+            self._telegram_bot = bot
+        if not hasattr(self, '_watchdog_task') or self._watchdog_task is None or self._watchdog_task.done():
+            self._watchdog_task = asyncio.create_task(self.watchdog_loop(bot=bot))
+        return self._watchdog_task
+
 bot_manager = BotProcessManager()
+
+def set_telegram_bot_instance(bot: Any):
+    """Module-level helper to register the Telegram bot instance for DM alerts."""
+    bot_manager.set_telegram_bot_instance(bot)
+
+def start_watchdog(bot: Any = None):
+    """Module-level helper to start the background watchdog loop."""
+    return bot_manager.start_watchdog(bot)
+
+def get_bot_process_metrics(bot_id: str) -> dict:
+    """Module-level helper to get real-time CPU & RAM metrics for a hosted bot."""
+    return bot_manager.get_bot_process_metrics(bot_id)
+
+def create_bot_backup_zip(bot_id: str, user_id: int) -> Optional[str]:
+    """Module-level helper to create a backup .zip archive for a hosted bot."""
+    return bot_manager.create_bot_backup_zip(bot_id, user_id)
+
 

@@ -72,6 +72,30 @@ def init_db():
         )
         """)
         
+        # Bot environment variables table
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS bot_env_vars (
+            bot_id TEXT,
+            key TEXT,
+            value TEXT,
+            created_at TEXT,
+            PRIMARY KEY (bot_id, key),
+            FOREIGN KEY (bot_id) REFERENCES hosted_bots (bot_id) ON DELETE CASCADE
+        )
+        """)
+        
+        # Referrals table
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS referrals (
+            referrer_id INTEGER,
+            referred_id INTEGER PRIMARY KEY,
+            created_at TEXT,
+            rewarded INTEGER DEFAULT 0,
+            FOREIGN KEY (referrer_id) REFERENCES users (user_id),
+            FOREIGN KEY (referred_id) REFERENCES users (user_id)
+        )
+        """)
+        
         # Indexes for fast lookup
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_joined_at ON users(joined_at)")
@@ -79,6 +103,8 @@ def init_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_hosted_bots_status ON hosted_bots(status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_hosted_bots_created_at ON hosted_bots(created_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_required_channels_created ON required_channels(created_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_bot_env_vars_bot_id ON bot_env_vars(bot_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_id)")
         
         # Seed default required channels if empty
         cursor.execute("SELECT COUNT(*) as count FROM required_channels")
@@ -394,3 +420,132 @@ def delete_required_channel(channel_id: Any):
         conn.commit()
     finally:
         conn.close()
+
+# ==========================================
+# Bot Environment Variables Operations
+# ==========================================
+
+def get_bot_env_vars(bot_id: str) -> Dict[str, str]:
+    bid = str(bot_id).strip()
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT key, value FROM bot_env_vars WHERE bot_id = ?", (bid,))
+        return {str(row['key']): str(row['value']) for row in cursor.fetchall()}
+    finally:
+        conn.close()
+
+def set_bot_env_var(bot_id: str, key: str, value: str):
+    bid = str(bot_id).strip()
+    k = str(key).strip()
+    v = str(value)
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        now = datetime.utcnow().isoformat()
+        cursor.execute("""
+        INSERT OR REPLACE INTO bot_env_vars (bot_id, key, value, created_at)
+        VALUES (?, ?, ?, ?)
+        """, (bid, k, v, now))
+        conn.commit()
+    finally:
+        conn.close()
+
+def delete_bot_env_var(bot_id: str, key: str) -> bool:
+    bid = str(bot_id).strip()
+    k = str(key).strip()
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM bot_env_vars WHERE bot_id = ? AND key = ?", (bid, k))
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+# ==========================================
+# Referral Operations
+# ==========================================
+
+def record_referral(referrer_id: int, referred_id: int) -> bool:
+    ref_by = int(referrer_id)
+    ref_to = int(referred_id)
+    if ref_by == ref_to:
+        return False
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM referrals WHERE referred_id = ?", (ref_to,))
+        if cursor.fetchone():
+            return False
+        now = datetime.utcnow().isoformat()
+        cursor.execute("""
+        INSERT INTO referrals (referrer_id, referred_id, created_at, rewarded)
+        VALUES (?, ?, ?, 0)
+        """, (ref_by, ref_to, now))
+        conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Error recording referral {ref_by} -> {ref_to}: {e}")
+        return False
+    finally:
+        conn.close()
+
+def get_referral_stats(user_id: int) -> Dict[str, int]:
+    uid = int(user_id)
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+        SELECT 
+            COUNT(*) as total_invited,
+            COALESCE(SUM(rewarded), 0) as rewarded_slots
+        FROM referrals
+        WHERE referrer_id = ?
+        """, (uid,))
+        row = cursor.fetchone()
+        if row:
+            return {
+                'total_invited': int(row['total_invited'] or 0),
+                'rewarded_slots': int(row['rewarded_slots'] or 0)
+            }
+        return {'total_invited': 0, 'rewarded_slots': 0}
+    finally:
+        conn.close()
+
+def reward_referral_if_pending(referred_id: int, bot: Any = None) -> Optional[int]:
+    ref_to = int(referred_id)
+    referrer_id = None
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT referrer_id, rewarded FROM referrals WHERE referred_id = ?", (ref_to,))
+        row = cursor.fetchone()
+        if not row or int(row['rewarded']) != 0:
+            return None
+        referrer_id = int(row['referrer_id'])
+        cursor.execute("UPDATE referrals SET rewarded = 1 WHERE referred_id = ?", (ref_to,))
+        conn.commit()
+    finally:
+        conn.close()
+
+    if referrer_id is not None:
+        adjust_user_slots(referrer_id, 1)
+        if bot:
+            try:
+                import asyncio
+                msg = (
+                    "🎉 <b>Referral Bonus!</b>\n\n"
+                    "A user you invited has just deployed their first bot!\n"
+                    "You have been rewarded with <b>+1 Bot Hosting Slot</b>! 🚀"
+                )
+                coro = bot.send_message(chat_id=referrer_id, text=msg, parse_mode="HTML")
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(coro)
+                except RuntimeError:
+                    asyncio.run(coro)
+            except Exception as e:
+                logger.warning(f"Could not notify referrer {referrer_id}: {e}")
+
+    return referrer_id

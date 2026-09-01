@@ -47,6 +47,7 @@ from user_handlers import (
     start_command,
     show_my_bots,
     show_account_info,
+    show_referral_hub,
     show_help,
     show_support_desk,
     show_templates_menu,
@@ -54,6 +55,9 @@ from user_handlers import (
     handle_bot_action,
     user_callback_handler,
     user_text_router,
+    export_bot_data_handler,
+    user_env_conv,
+    handle_direct_document_upload,
     host_bot_start,
     host_bot_name,
     host_bot_token,
@@ -85,7 +89,9 @@ async def post_init(application):
     logger.info("Initializing Gravix-Host Database & Storage...")
     database.init_db()
 
-    asyncio.create_task(bot_manager.watchdog_loop())
+    # Pass Telegram bot instance to BotProcessManager and launch watchdog loop
+    bot_manager.set_telegram_bot_instance(application.bot)
+    bot_manager.start_watchdog(application.bot)
 
     all_bots = database.get_all_hosted_bots()
     resumed = 0
@@ -179,7 +185,7 @@ def main():
     tpl_conv = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(template_select_start, pattern="^deploy_tpl_"),
-            MessageHandler(filters.Regex("^(📢 Simple Echo & Info Bot|🛡️ Group Welcome Bot|📣 Broadcast Bot.*)$"), template_select_start)
+            MessageHandler(filters.Regex("^(📢 Simple Echo & Info Bot|🛡️ Group Welcome Bot|📣 Broadcast Bot.*|🤖 AI ChatGPT.*|📦 Telegram File Store.*|🛡️ Anti-Spam.*)$"), template_select_start)
         ],
         states={
             TPL_TOKEN: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~cancel_filter, template_token_received)]
@@ -225,10 +231,15 @@ def main():
     application.add_handler(CommandHandler("support", show_support_desk))
     application.add_handler(CommandHandler("helpdesk", show_support_desk))
     application.add_handler(CommandHandler("mybots", show_my_bots))
+    application.add_handler(CommandHandler("referral", show_referral_hub))
+    application.add_handler(CommandHandler("ref", show_referral_hub))
+    application.add_handler(CommandHandler("backup", export_bot_data_handler))
+    application.add_handler(CommandHandler("export", export_bot_data_handler))
 
     # 2. Multi-Step Conversation Handlers
     application.add_handler(host_conv)
     application.add_handler(tpl_conv)
+    application.add_handler(user_env_conv)
     application.add_handler(admin_fsub_conv)
     application.add_handler(admin_slots_conv)
 
@@ -238,6 +249,7 @@ def main():
     application.add_handler(MessageHandler(filters.Regex("^🔙 Back to My Bots$"), show_my_bots))
     application.add_handler(MessageHandler(filters.Regex("^⚡ Quick Template Deploy$"), show_templates_menu))
     application.add_handler(MessageHandler(filters.Regex("^📊 My Account & Slots$"), show_account_info))
+    application.add_handler(MessageHandler(filters.Regex("^(🎁 Refer & Earn Free Slots|🎁 Refer & Earn|🎁 Referral Rewards)$"), show_referral_hub))
     application.add_handler(MessageHandler(filters.Regex("^❓ Help & Guidelines$"), show_help))
     application.add_handler(MessageHandler(filters.Regex(r"^(💬 Customer Support|/support|/helpdesk)$"), show_support_desk))
 
@@ -246,6 +258,7 @@ def main():
     application.add_handler(MessageHandler(filters.Regex(r"^(?:🟢|🔴|⚪)\s+.*\[#([a-zA-Z0-9_-]+)\]$"), show_bot_details))
     application.add_handler(MessageHandler(filters.Regex(r"^(?:▶️ Start Bot|⏹️ Stop Bot|🔄 Restart Bot|📜 View Logs|🗑️ Delete Bot)\s+\[#([a-zA-Z0-9_-]+)\]$"), handle_bot_action))
     application.add_handler(MessageHandler(filters.Regex(r"^(?:⚠️ Confirm Delete|❌ Cancel Delete)\s+\[#([a-zA-Z0-9_-]+)\]$"), handle_bot_action))
+    application.add_handler(MessageHandler(filters.Regex(r"^(?:💾 Export Backup|💾 Export Data Backup)\s*(?:\[#[a-zA-Z0-9_-]+\])?$"), export_bot_data_handler))
 
     # 5. Admin Panel Open / Navigation / Stats
     application.add_handler(MessageHandler(filters.Regex("^(👑 Open Admin Panel|🔄 Refresh Admin|🔙 Back to Admin|🏠 Back to Admin)$"), admin_panel))
@@ -273,14 +286,17 @@ def main():
     application.add_handler(MessageHandler(filters.Regex(r"^⚙️ Toggle Maintenance.*"), admin_toggle_maint_handler))
     application.add_handler(MessageHandler(filters.Regex("^(📢 Broadcast Announcement|📢 Broadcast Message)$"), admin_broadcast_prompt_handler))
 
-    # 10. Legacy Callback Query Handlers
+    # 10. Direct Document Uploads (.py & .zip) outside active conversation
+    application.add_handler(MessageHandler(filters.Document.ALL & ~filters.COMMAND, handle_direct_document_upload))
+
+    # 11. Legacy Callback Query Handlers
     application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^admin_"))
     application.add_handler(CallbackQueryHandler(user_callback_handler))
 
-    # 11. General Fallback Text Router
+    # 12. General Fallback Text Router
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, general_message_router))
 
-    # 12. Global Error Handler
+    # 13. Global Error Handler
     application.add_error_handler(error_handler)
 
     application.run_polling(drop_pending_updates=True)
