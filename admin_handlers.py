@@ -278,16 +278,16 @@ async def admin_stats_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         "━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "<blockquote>"
         "📊 <b>Platform Overview</b>\n"
-        f"👥 <b>Total Users:</b> <code>{len(users)}</code>\n"
+        f"👥 <b>𝗧𝗼𝘁𝗮𝗹 𝗨𝘀𝗲𝗿𝘀:</b> <code>{len(users)}</code>\n"
         f"🤖 <b>Total Hosted Bots:</b> <code>{len(bots)}</code>\n"
         f"   ├ 🟢 Active: <code>{running_bots}</code>\n"
         f"   ├ ⚪ Stopped: <code>{stopped_bots}</code>\n"
         f"   └ 🔴 Failed/Crashed: <code>{failed_bots}</code>\n\n"
         "🖥️ <b>Host Server Resources</b>\n"
-        f"⚡ <b>CPU Load:</b> <code>{cpu_bar} {cpu_percent}%</code>\n"
-        f"💾 <b>RAM Usage:</b> <code>{ram_bar} {mem.percent}%</code>\n"
+        f"⚡ <b>𝗖𝗣𝗨 𝗟𝗼𝗮𝗱:</b> <code>{cpu_bar} {cpu_percent}%</code>\n"
+        f"💾 <b>𝗥𝗔𝗠 𝗨𝘀𝗮𝗴𝗲:</b> <code>{ram_bar} {mem.percent}%</code>\n"
         f"   └ <code>{ram_used_mb} MB / {ram_total_mb} MB</code>\n"
-        f"💽 <b>Disk Allocation:</b> <code>{disk_bar} {disk.percent}%</code>\n"
+        f"💽 <b>𝗗𝗶𝘀𝗸 𝗔𝗹𝗹𝗼𝗰𝗮𝘁𝗶𝗼𝗻:</b> <code>{disk_bar} {disk.percent}%</code>\n"
         f"   └ Free: <code>{disk_free_gb} GB</code> | Total: <code>{disk_total_gb} GB</code>"
         "</blockquote>\n\n"
         "💡 <i>Telemetry metrics sampled in real-time from Gravix Dedicated Cloud Infrastructure.</i>"
@@ -375,10 +375,10 @@ async def admin_user_detail_handler(update: Update, context: ContextTypes.DEFAUL
         f"<i>Account Details & Quota for UID {target_user['user_id']}</i>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "<blockquote>"
-        f"🆔 <b>User ID:</b> <code>{target_user['user_id']}</code>\n"
+        f"🆔 <b>𝗨𝘀𝗲𝗿 𝗜𝗗:</b> <code>{target_user['user_id']}</code>\n"
         f"👤 <b>Name:</b> {name_display}\n"
-        f"🏷️ <b>Username:</b> {username_display}\n"
-        f"🛡️ <b>Account Status:</b> {banned_str}\n"
+        f"🏷️ <b>𝗨𝘀𝗲𝗿𝗻𝗮𝗺𝗲:</b> {username_display}\n"
+        f"🛡️ <b>𝗔𝗰𝗰𝗼𝘂𝗻𝘁 𝗦𝘁𝗮𝘁𝘂𝘀:</b> {banned_str}\n"
         f"📦 <b>Slot Allocation:</b> <code>{target_user.get('max_slots', 3)}</code> bots\n"
         f"🤖 <b>Hosted Instances:</b> <code>{len(user_bots)}</code> (<code>{running_count}</code> Active)\n"
         f"📅 <b>Registration Date:</b> <code>{html.escape(str(target_user.get('joined_at', 'N/A')))}</code>"
@@ -461,10 +461,9 @@ async def admin_bots_list_handler(update: Update, context: ContextTypes.DEFAULT_
     context.user_data['admin_bots_page'] = curr_page
     curr_bots = all_bots[curr_page * per_page : (curr_page + 1) * per_page]
 
+    header = make_header_card("ALL PLATFORM BOTS", f"Page {curr_page + 1} of {total_pages}")
     text = (
-        f"<b>🤖 ALL PLATFORM BOTS</b> (Page {curr_page + 1}/{total_pages})\n"
-        "<i>Active Subprocesses & Instance Registry</i>\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"{header}\n\n"
     )
 
     if not all_bots:
@@ -480,7 +479,7 @@ async def admin_bots_list_handler(update: Update, context: ContextTypes.DEFAULT_
             u_id = b.get('user_id')
             entries.append(
                 f"{idx}. {status_emoji} <b>{b_name}</b> [<code>#{b_id}</code>]\n"
-                f"   └ Owner: <code>{u_id}</code> | Status: <code>{st}</code>"
+                f"   └ 👤 <b>𝗢𝘄𝗻𝗲𝗿:</b> <code>{u_id}</code> | ⚡ <b>𝗦𝘁𝗮𝘁𝘂𝘀:</b> <code>{st}</code>"
             )
         text += "\n\n".join(entries) + "</blockquote>\n"
 
@@ -516,17 +515,24 @@ async def admin_bot_detail_handler(update: Update, context: ContextTypes.DEFAULT
     masked_token = f"{token[:10]}...{token[-5:]}" if len(token) > 15 else "******"
     script_path = bot_data.get('script_path') or f"{DATA_DIR}/bots/{bot_data['user_id']}_{bot_id}/main.py"
     created_at = bot_data.get('created_at', 'N/A')
+    auto_restart = "🟢 Enabled" if bot_data.get('auto_restart', 1) else "🔴 Disabled"
 
+    metrics = bot_manager.get_bot_process_metrics(bot_id)
+    cpu_percent = metrics.get('cpu_percent', 0.0)
+    ram_mb = metrics.get('ram_mb', 0.0)
+
+    header = make_header_card("𝗕𝗢𝗧 𝗜𝗡𝗦𝗧𝗔𝗡𝗖𝗘 𝗜𝗡𝗦𝗣𝗘𝗖𝗧𝗢𝗥", f"Instance Diagnostics & Process Control for #{html.escape(bot_id)}")
     text = (
-        "<b>⚙️ PLATFORM BOT INSPECTOR</b>\n"
-        "<i>Instance Diagnostics & Process Control</i>\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"{header}\n\n"
         "<blockquote>"
-        f"🤖 <b>Bot Name:</b> <b>{html.escape(bot_data.get('bot_name', 'Unnamed Bot'))}</b>\n"
-        f"🆔 <b>Bot ID:</b> <code>#{html.escape(bot_id)}</code>\n"
-        f"👤 <b>Owner UID:</b> <code>{bot_data['user_id']}</code>\n"
-        f"📊 <b>Status:</b> {status_emoji} <code>{status}</code>\n"
-        f"🔑 <b>Token (Masked):</b> <code>{html.escape(masked_token)}</code>\n"
+        f"🆔 <b>𝗕𝗼𝘁 𝗜𝗗:</b> <code>#{html.escape(bot_id)}</code>\n"
+        f"🤖 <b>𝗕𝗼𝘁 𝗡𝗮𝗺𝗲:</b> <b>{html.escape(bot_data.get('bot_name', 'Unnamed Bot'))}</b>\n"
+        f"👤 <b>𝗢𝘄𝗻𝗲𝗿:</b> <code>{bot_data['user_id']}</code>\n"
+        f"⚡ <b>𝗦𝘁𝗮𝘁𝘂𝘀:</b> {status_emoji} <code>{status}</code>\n"
+        f"⚡ <b>𝗖𝗣𝗨 𝗟𝗼𝗮𝗱:</b> <code>{cpu_percent}%</code>\n"
+        f"💾 <b>𝗥𝗔𝗠 𝗨𝘀𝗮𝗴𝗲:</b> <code>{ram_mb} MB</code>\n"
+        f"🔄 <b>𝗔𝘂𝘁𝗼-𝗥𝗲𝘀𝘁𝗮𝗿𝘁:</b> <code>{auto_restart}</code>\n"
+        f"🔑 <b>API Token:</b> <code>{html.escape(masked_token)}</code>\n"
         f"📁 <b>Script Path:</b> <code>{html.escape(script_path)}</code>\n"
         f"🕒 <b>Provisioned:</b> <code>{html.escape(str(created_at))}</code>"
         "</blockquote>\n\n"
@@ -568,34 +574,39 @@ async def admin_bot_action_handler(update: Update, context: ContextTypes.DEFAULT
     if action == "start":
         success, msg = await bot_manager.start_bot(bot_id)
         if success:
-            await _send_admin_msg(update, f"✅ <b>PROCESS STARTED</b>\n<code>{html.escape(msg)}</code>")
+            header = make_header_card("𝗣𝗥𝗢𝗖𝗘𝗦𝗦 𝗦𝗧𝗔𝗥𝗧𝗘𝗗", f"Instance #{bot_id}")
+            await _send_admin_msg(update, f"{header}\n\n<code>{html.escape(msg)}</code>")
         else:
-            await _send_admin_msg(update, f"❌ <b>START FAILED</b>\n<code>{html.escape(msg)}</code>")
+            header = make_header_card("𝗦𝗧𝗔𝗥𝗧 𝗙𝗔𝗜𝗟𝗘𝗗", f"Instance #{bot_id}")
+            await _send_admin_msg(update, f"{header}\n\n<code>{html.escape(msg)}</code>")
         await admin_bot_detail_handler(update, context, bot_id)
 
     elif action == "stop":
         success, msg = await bot_manager.stop_bot(bot_id)
         if success:
-            await _send_admin_msg(update, f"⏹️ <b>PROCESS STOPPED</b>\n<code>{html.escape(msg)}</code>")
+            header = make_header_card("𝗣𝗥𝗢𝗖𝗘𝗦𝗦 𝗦𝗧𝗢𝗣𝗣𝗘𝗗", f"Instance #{bot_id}")
+            await _send_admin_msg(update, f"{header}\n\n<code>{html.escape(msg)}</code>")
         else:
-            await _send_admin_msg(update, f"❌ <b>STOP FAILED</b>\n<code>{html.escape(msg)}</code>")
+            header = make_header_card("𝗦𝗧𝗢𝗣 𝗙𝗔𝗜𝗟𝗘𝗗", f"Instance #{bot_id}")
+            await _send_admin_msg(update, f"{header}\n\n<code>{html.escape(msg)}</code>")
         await admin_bot_detail_handler(update, context, bot_id)
 
     elif action == "restart":
         success, msg = await bot_manager.restart_bot(bot_id)
         if success:
-            await _send_admin_msg(update, f"🔄 <b>PROCESS RESTARTED</b>\n<code>{html.escape(msg)}</code>")
+            header = make_header_card("𝗣𝗥𝗢𝗖𝗘𝗦𝗦 𝗥𝗘𝗦𝗧𝗔𝗥𝗧𝗘𝗗", f"Instance #{bot_id}")
+            await _send_admin_msg(update, f"{header}\n\n<code>{html.escape(msg)}</code>")
         else:
-            await _send_admin_msg(update, f"❌ <b>RESTART FAILED</b>\n<code>{html.escape(msg)}</code>")
+            header = make_header_card("𝗥𝗘𝗦𝗧𝗔𝗥𝗧 𝗙𝗔𝗜𝗟𝗘𝗗", f"Instance #{bot_id}")
+            await _send_admin_msg(update, f"{header}\n\n<code>{html.escape(msg)}</code>")
         await admin_bot_detail_handler(update, context, bot_id)
 
     elif action == "logs":
         logs = bot_manager.get_logs(bot_id, lines=30)
         log_snippet = logs[-3500:] if logs else "No execution logs recorded yet."
+        header = make_header_card("𝗕𝗢𝗧 𝗘𝗫𝗘𝗖𝗨𝗧𝗜𝗢𝗡 𝗟𝗢𝗚𝗦", f"Live Subprocess Output for #{html.escape(bot_id)}")
         text = (
-            "<b>📜 BOT EXECUTION LOGS</b>\n"
-            f"<i>Live Subprocess Output for #{html.escape(bot_id)}</i>\n"
-            "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"{header}\n\n"
             f"🤖 <b>Target Bot:</b> <code>#{html.escape(bot_id)}</code>\n\n"
             f"<pre><code>{html.escape(log_snippet)}</code></pre>"
         )
@@ -613,9 +624,10 @@ async def admin_bot_action_handler(update: Update, context: ContextTypes.DEFAULT
             if os.path.exists(script_dir):
                 shutil.rmtree(script_dir, ignore_errors=True)
         database.delete_bot_record(bot_id)
+        header = make_header_card("𝗕𝗢𝗧 𝗣𝗘𝗥𝗠𝗔𝗡𝗘𝗡𝗧𝗟𝗬 𝗗𝗘𝗟𝗘𝗧𝗘𝗗", f"Purged Instance #{html.escape(bot_id)}")
         await _send_admin_msg(
             update,
-            f"🗑️ <b>BOT PERMANENTLY DELETED</b>\nBot instance <code>#{html.escape(bot_id)}</code> and disk assets have been purged."
+            f"{header}\n\nBot instance <code>#{html.escape(bot_id)}</code> and disk assets have been purged."
         )
         await admin_bots_list_handler(update, context, 0)
 
