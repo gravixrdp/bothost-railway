@@ -201,6 +201,7 @@ def get_admin_bot_detail_keyboard(bot_id: str, status: str) -> ReplyKeyboardMark
     keyboard = [
         [KeyboardButton(f"⇋ {state_label} [#{bot_id}] ⇋"), KeyboardButton(f"⇋ 𝗥𝗲𝘀𝘁𝗮𝗿𝘁 [#{bot_id}] ⇋")],
         [KeyboardButton(f"⇋ 𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀 [#{bot_id}] ⇋"), KeyboardButton(f"⇋ 𝗚𝗲𝘁 𝗕𝗼𝘁 𝗖𝗼𝗱𝗲 [#{bot_id}] ⇋")],
+        [KeyboardButton(f"⇋ 🤖 𝗔𝗜 𝗗𝗶𝗮𝗴𝗻𝗼𝘀𝗲 & 𝗙𝗶𝘅 [#{bot_id}] ⇋")],
         [KeyboardButton(f"⇋ 𝗙𝗼𝗿𝗰𝗲 𝗗𝗲𝗹𝗲𝘁𝗲 [#{bot_id}] ⇋")],
         [KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗹𝗹 𝗕𝗼𝘁𝘀 ⇋"), KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻 ⇋")]
     ]
@@ -589,6 +590,8 @@ async def admin_bot_action_handler(update: Update, context: ContextTypes.DEFAULT
             action = "logs"
         elif "Get Bot Code" in text_input or "Download Code" in text_input or "View Code" in text_input or "Get Code" in text_input or "Export Code" in text_input or "Code" in text_input:
             action = "code"
+        elif "AI Diagnose" in text_input or "Diagnose" in text_input or "AI Fix" in text_input or "diagnose" in text_input.lower():
+            action = "ai_diagnose"
         elif "Force Delete" in text_input or "🗑️" in text_input:
             action = "del"
 
@@ -638,6 +641,24 @@ async def admin_bot_action_handler(update: Update, context: ContextTypes.DEFAULT
 
     elif action == "code":
         await admin_bot_get_code_handler(update, context, bot_id)
+
+    elif action == "ai_diagnose":
+        from ai_diagnostics import run_groq_ai_diagnostics
+        bot_data = database.get_bot(bot_id)
+        await _send_admin_msg(
+            update,
+            f"⏳ <b>AI analyzing instance <code>#{bot_id}</code> crash logs with Groq engine...</b>",
+            context=context
+        )
+        report = await run_groq_ai_diagnostics(bot_id, admin_id, is_admin_caller=True)
+        status = bot_data.get('status', 'STOPPED') if bot_data else 'STOPPED'
+        reply_markup = get_admin_bot_detail_keyboard(bot_id, status)
+        await _send_admin_msg(
+            update,
+            report,
+            reply_markup=reply_markup,
+            context=context
+        )
 
     elif action == "del":
         await bot_manager.stop_bot(bot_id)

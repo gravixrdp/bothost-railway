@@ -343,6 +343,9 @@ def get_bot_detail_reply_keyboard(bot_id: str, status: str) -> ReplyKeyboardMark
         KeyboardButton(f"⇋ 𝗘𝘅𝗽𝗼𝗿𝘁 𝗕𝗮𝗰𝗸𝘂𝗽 [#{bot_id}] ⇋")
     ])
     keyboard.append([
+        KeyboardButton(f"⇋ 🤖 𝗔𝗜 𝗗𝗶𝗮𝗴𝗻𝗼𝘀𝗲 & 𝗙𝗶𝘅 [#{bot_id}] ⇋")
+    ])
+    keyboard.append([
         KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝘆 𝗕𝗼𝘁𝘀 ⇋"),
         KeyboardButton("⇋ 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂 ⇋")
     ])
@@ -661,6 +664,8 @@ async def handle_bot_action(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             action = "backup"
         elif "get bot code" in c_low or "bot code" in c_low or "get code" in c_low or "code" in c_low or "download code" in c_low:
             action = "code"
+        elif "ai diagnose" in c_low or "diagnose" in c_low or "ai fix" in c_low:
+            action = "ai_diagnose"
 
     bot_data = database.get_bot(bot_id)
     if not bot_data or (bot_data['user_id'] != user_id and user_id != ADMIN_ID):
@@ -722,6 +727,22 @@ async def handle_bot_action(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             update,
             context,
             text,
+            reply_markup=get_bot_detail_reply_keyboard(bot_id, status)
+        )
+
+    elif action == "ai_diagnose":
+        from ai_diagnostics import run_groq_ai_diagnostics
+        await send_clean_screen(
+            update,
+            context,
+            f"⏳ <b>AI analyzing instance <code>#{bot_id}</code> crash logs with Groq engine...</b>"
+        )
+        report = await run_groq_ai_diagnostics(bot_id, user_id, is_admin_caller=False)
+        status = bot_data['status']
+        await send_clean_screen(
+            update,
+            context,
+            report,
             reply_markup=get_bot_detail_reply_keyboard(bot_id, status)
         )
 

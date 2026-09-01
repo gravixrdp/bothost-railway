@@ -536,7 +536,7 @@ def main():
         user_text_router
     ))
     application.add_handler(MessageHandler(
-        NormalizedRegex(r"^(?:[▶️⏹️🔄📜📁💾📥🗑️🔑⇋⇆⇌⇄]\s*)?(?:Start Bot|Stop Bot|Restart Bot|View Logs|Delete Bot|Get Bot Code|Download Code|View Code|Get Code|Export Code|Manage Env Vars|Env Vars|Start|Stop|Restart|Logs|Code|Delete|𝗦𝘁𝗮𝗿𝘁 𝗕𝗼𝘁|𝗦𝘁𝗼𝗽 𝗕𝗼𝘁|𝗥𝗲𝘀𝘁𝗮𝗿𝘁 𝗕𝗼𝘁|𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀|𝗗𝗲𝗹𝗲𝘁𝗲 𝗕𝗼𝘁|𝗚𝗲𝘁 𝗕𝗼𝘁 𝗖𝗼𝗱𝗲|𝗠𝗮𝗻𝗮𝗴𝗲 𝗘𝗻𝘃 𝗩𝗮𝗿𝘀|𝗘𝗻𝘃 𝗩𝗮𝗿𝘀)\s*(?:[⇋⇆⇌⇄]\s*)?\[#([a-zA-Z0-9_-]+)\](?:\s*[⇋⇆⇌⇄])?$"),
+        NormalizedRegex(r"^(?:[▶️⏹️🔄📜📁💾📥🗑️🔑🤖🛠️⇋⇆⇌⇄]\s*)?(?:Start Bot|Stop Bot|Restart Bot|View Logs|Delete Bot|Get Bot Code|Download Code|View Code|Get Code|Export Code|AI Diagnose & Fix|AI Diagnose|AI Fix|Diagnose|Manage Env Vars|Env Vars|Start|Stop|Restart|Logs|Code|Delete|𝗦𝘁𝗮𝗿𝘁 𝗕𝗼𝘁|𝗦𝘁𝗼𝗽 𝗕𝗼𝘁|𝗥𝗲𝘀𝘁𝗮𝗿𝘁 𝗕𝗼𝘁|𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀|𝗗𝗲𝗹𝗲𝘁𝗲 𝗕𝗼𝘁|𝗚𝗲𝘁 𝗕𝗼𝘁 𝗖𝗼𝗱𝗲|𝗔𝗜 𝗗𝗶𝗮𝗴𝗻𝗼𝘀𝗲 & 𝗙𝗶𝘅|𝗔𝗜 𝗗𝗶𝗮𝗴𝗻𝗼𝘀𝗲|𝗠𝗮𝗻𝗮𝗴𝗲 𝗘𝗻𝘃 𝗩𝗮𝗿𝘀|𝗘𝗻𝘃 𝗩𝗮𝗿𝘀)\s*(?:[⇋⇆⇌⇄]\s*)?\[#([a-zA-Z0-9_-]+)\](?:\s*[⇋⇆⇌⇄])?$"),
         handle_bot_action
     ))
     application.add_handler(MessageHandler(
@@ -603,7 +603,7 @@ def main():
         handle_admin_text
     ))
     application.add_handler(MessageHandler(
-        NormalizedRegex(r"^(?:[▶️⏹️🔄📜📁💾📥🗑️⇋⇆⇌⇄]\s*)?(?:Force Start|Stop|Restart|View Logs|Get Bot Code|Download Code|View Code|Get Code|Export Code|Force Delete|Start|Delete|Logs|Code|𝗙𝗼𝗿𝗰𝗲 𝗦𝘁𝗮𝗿𝘁|𝗦𝘁𝗼𝗽|𝗥𝗲𝘀𝘁𝗮𝗿𝘁|𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀|𝗚𝗲𝘁 𝗕𝗼𝘁 𝗖𝗼𝗱𝗲|𝗙𝗼𝗿𝗰𝗲 𝗗𝗲𝗹𝗲𝘁𝗲)\s*(?:[⇋⇆⇌⇄]\s*)?\[#([a-zA-Z0-9_-]+)\](?:\s*[⇋⇆⇌⇄])?$"),
+        NormalizedRegex(r"^(?:[▶️⏹️🔄📜📁💾📥🗑️🤖🛠️⇋⇆⇌⇄]\s*)?(?:Force Start|Stop|Restart|View Logs|Get Bot Code|Download Code|View Code|Get Code|Export Code|AI Diagnose & Fix|AI Diagnose|AI Fix|Diagnose|Force Delete|Start|Delete|Logs|Code|𝗙𝗼𝗿𝗰𝗲 𝗦𝘁𝗮𝗿𝘁|𝗦𝘁𝗼𝗽|𝗥𝗲𝘀𝘁𝗮𝗿𝘁|𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀|𝗚𝗲𝘁 𝗕𝗼𝘁 𝗖𝗼𝗱𝗲|𝗔𝗜 𝗗𝗶𝗮𝗴𝗻𝗼𝘀𝗲 & 𝗙𝗶𝘅|𝗔𝗜 𝗗𝗶𝗮𝗴𝗻𝗼𝘀𝗲|𝗙𝗼𝗿𝗰𝗲 𝗗𝗲𝗹𝗲𝘁𝗲)\s*(?:[⇋⇆⇌⇄]\s*)?\[#([a-zA-Z0-9_-]+)\](?:\s*[⇋⇆⇌⇄])?$"),
         admin_bot_action_handler
     ))
 

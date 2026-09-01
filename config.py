@@ -13,6 +13,8 @@ ADMIN_ID = int(os.getenv("ADMIN_ID", "5610858626") or 5610858626)
 DATA_DIR = os.getenv("DATA_DIR", "/data")
 DEFAULT_MAX_BOTS_PER_USER = int(os.getenv("DEFAULT_MAX_BOTS_PER_USER", "3"))
 MAX_LOG_LINES = int(os.getenv("MAX_LOG_LINES", "100"))
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
+GROQ_MODEL = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b").strip()
 
 # Ensure base directories exist
 os.makedirs(DATA_DIR, exist_ok=True)
