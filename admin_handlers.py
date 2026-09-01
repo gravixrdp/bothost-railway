@@ -623,18 +623,17 @@ async def admin_bot_action_handler(update: Update, context: ContextTypes.DEFAULT
         await admin_bot_detail_handler(update, context, bot_id)
 
     elif action == "logs":
+        bot_data = database.get_bot(bot_id)
         logs = bot_manager.get_logs(bot_id, lines=30)
         log_snippet = logs[-3500:] if logs else "No execution logs recorded yet."
         header = make_header_card("𝗕𝗢𝗧 𝗘𝗫𝗘𝗖𝗨𝗧𝗜𝗢𝗡 𝗟𝗢𝗚𝗦", f"Live Subprocess Output for #{html.escape(bot_id)}")
         text = (
             f"{header}\n\n"
             f"🤖 <b>Target Bot:</b> <code>#{html.escape(bot_id)}</code>\n\n"
-            f"<pre><code>{html.escape(log_snippet)}</code></pre>"
+            f"<pre><code>{html.escape(log_snippet)}</code></pre>\n\n"
+            "💡 <i>Displaying the most recent 30 log lines.</i>"
         )
-        reply_markup = ReplyKeyboardMarkup([
-            [KeyboardButton(f"⇋ 𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀 [#{bot_id}] ⇋"), KeyboardButton(f"⇋ 𝗥𝗲𝘀𝘁𝗮𝗿𝘁 [#{bot_id}] ⇋")],
-            [KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗹𝗹 𝗕𝗼𝘁𝘀 ⇋"), KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻 ⇋")]
-        ], resize_keyboard=True)
+        reply_markup = get_admin_bot_detail_keyboard(bot_id, bot_data.get('status', 'STOPPED') if bot_data else 'STOPPED')
         await _send_admin_msg(update, text, reply_markup=reply_markup, context=context)
 
     elif action == "code":
@@ -673,8 +672,6 @@ async def admin_bot_get_code_handler(update: Update, context: ContextTypes.DEFAU
     clean_name = re.sub(r'[^a-zA-Z0-9_-]', '_', bot_name)
     script_path = bot_data.get('script_path') or os.path.join(DATA_DIR, "bots", f"{owner_id}_{bot_id}", "main.py")
 
-    await _send_admin_msg(update, f"⏳ <b>Extracting source files for <code>{html.escape(bot_name)} [#{bot_id}]</code>...</b>", context=context)
-
     sent_any = False
 
     # 1. Send single main.py if present
@@ -688,16 +685,14 @@ async def admin_bot_get_code_handler(update: Update, context: ContextTypes.DEFAU
                     f"👤 <b>Owner UID:</b> <code>{owner_id}</code>\n"
                     f"📄 <b>File:</b> <code>main.py</code>"
                 )
-                sent_doc = await context.bot.send_document(
+                await context.bot.send_document(
                     chat_id=admin_id,
                     document=f,
                     filename=f"{clean_name}_{bot_id}_main.py",
                     caption=caption,
                     parse_mode="HTML"
                 )
-                if sent_doc:
-                    database.record_chat_message(admin_id, sent_doc.message_id)
-                    sent_any = True
+                sent_any = True
         except Exception as e:
             logger.error(f"Error sending main.py to admin: {e}")
 
@@ -713,16 +708,14 @@ async def admin_bot_get_code_handler(update: Update, context: ContextTypes.DEFAU
                     f"👤 <b>Owner UID:</b> <code>{owner_id}</code>\n"
                     f"📦 <b>Archive:</b> Complete project workspace directory"
                 )
-                sent_doc = await context.bot.send_document(
+                await context.bot.send_document(
                     chat_id=admin_id,
                     document=zf,
                     filename=f"{clean_name}_{bot_id}_workspace.zip",
                     caption=caption,
                     parse_mode="HTML"
                 )
-                if sent_doc:
-                    database.record_chat_message(admin_id, sent_doc.message_id)
-                    sent_any = True
+                sent_any = True
         except Exception as e:
             logger.error(f"Error sending workspace zip to admin: {e}")
 
@@ -732,8 +725,16 @@ async def admin_bot_get_code_handler(update: Update, context: ContextTypes.DEFAU
             f"❌ <b>Source Code Not Found:</b> No files found on disk for bot <code>#{bot_id}</code>.",
             context=context
         )
-
-    await admin_bot_detail_handler(update, context, bot_id)
+    else:
+        status = bot_data.get('status', 'STOPPED')
+        reply_markup = get_admin_bot_detail_keyboard(bot_id, status)
+        await _send_admin_msg(
+            update,
+            f"✅ <b>Source files for <code>{html.escape(bot_name)} [#{bot_id}]</code> sent above.</b>\n"
+            "<i>Files are saved directly in chat.</i>",
+            reply_markup=reply_markup,
+            context=context
+        )
 
 async def check_channel_bot_admin_status(bot, channel_id: str) -> tuple[bool, str, str]:
     """

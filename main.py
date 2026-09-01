@@ -536,7 +536,7 @@ def main():
         user_text_router
     ))
     application.add_handler(MessageHandler(
-        NormalizedRegex(r"^(?:[▶️⏹️🔄📜🗑️🔑⇋⇆⇌⇄]\s*)?(?:Start Bot|Stop Bot|Restart Bot|View Logs|Delete Bot|Manage Env Vars|Env Vars|Start|Stop|Restart|Logs|Delete|𝗦𝘁𝗮𝗿𝘁 𝗕𝗼𝘁|𝗦𝘁𝗼𝗽 𝗕𝗼𝘁|𝗥𝗲𝘀𝘁𝗮𝗿𝘁 𝗕𝗼𝘁|𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀|𝗗𝗲𝗹𝗲𝘁𝗲 𝗕𝗼𝘁|𝗠𝗮𝗻𝗮𝗴𝗲 𝗘𝗻𝘃 𝗩𝗮𝗿𝘀|𝗘𝗻𝘃 𝗩𝗮𝗿𝘀)\s*(?:[⇋⇆⇌⇄]\s*)?\[#([a-zA-Z0-9_-]+)\](?:\s*[⇋⇆⇌⇄])?$"),
+        NormalizedRegex(r"^(?:[▶️⏹️🔄📜📁💾📥🗑️🔑⇋⇆⇌⇄]\s*)?(?:Start Bot|Stop Bot|Restart Bot|View Logs|Delete Bot|Get Bot Code|Download Code|View Code|Get Code|Export Code|Manage Env Vars|Env Vars|Start|Stop|Restart|Logs|Code|Delete|𝗦𝘁𝗮𝗿𝘁 𝗕𝗼𝘁|𝗦𝘁𝗼𝗽 𝗕𝗼𝘁|𝗥𝗲𝘀𝘁𝗮𝗿𝘁 𝗕𝗼𝘁|𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀|𝗗𝗲𝗹𝗲𝘁𝗲 𝗕𝗼𝘁|𝗚𝗲𝘁 𝗕𝗼𝘁 𝗖𝗼𝗱𝗲|𝗠𝗮𝗻𝗮𝗴𝗲 𝗘𝗻𝘃 𝗩𝗮𝗿𝘀|𝗘𝗻𝘃 𝗩𝗮𝗿𝘀)\s*(?:[⇋⇆⇌⇄]\s*)?\[#([a-zA-Z0-9_-]+)\](?:\s*[⇋⇆⇌⇄])?$"),
         handle_bot_action
     ))
     application.add_handler(MessageHandler(

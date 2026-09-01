@@ -659,6 +659,8 @@ async def handle_bot_action(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             action = "env"
         elif "export backup" in c_low or "backup" in c_low:
             action = "backup"
+        elif "get bot code" in c_low or "bot code" in c_low or "get code" in c_low or "code" in c_low or "download code" in c_low:
+            action = "code"
 
     bot_data = database.get_bot(bot_id)
     if not bot_data or (bot_data['user_id'] != user_id and user_id != ADMIN_ID):
@@ -667,6 +669,10 @@ async def handle_bot_action(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             await update.callback_query.answer(msg, show_alert=True)
         await send_clean_screen(update, context, msg, reply_markup=get_main_reply_keyboard(user_id))
         return
+
+    if user_id == ADMIN_ID and (context.user_data.get('admin_bots_page') is not None or bot_data['user_id'] != user_id):
+        from admin_handlers import admin_bot_action_handler
+        return await admin_bot_action_handler(update, context, action=action, bot_id=bot_id)
 
     safe_bot_name = html.escape(bot_data.get('bot_name', 'Unnamed Bot'))
 
