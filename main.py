@@ -54,6 +54,7 @@ from user_handlers import (
     show_my_bots,
     show_account_info,
     show_referral_hub,
+    show_channel_promotion,
     show_help,
     show_support_desk,
     show_templates_menu,
@@ -286,6 +287,13 @@ async def general_message_router(update: Update, context: ContextTypes.DEFAULT_T
         or clean_lower in ["/referral", "/ref"]
     ):
         await show_referral_hub(update, context)
+        return
+    elif (
+        clean_stripped in ["Channel Promotion", "Promote Your Channel", "Promote Channel", "Channel Promo", "Promo"]
+        or clean_text in ["📢 Channel Promotion", "/promote", "/promo", "/promotion"]
+        or clean_lower in ["/promote", "/promo", "/promotion", "channel promotion"]
+    ):
+        await show_channel_promotion(update, context)
         return
     elif (
         clean_stripped in ["Help & Guidelines", "Help", "Guidelines"]

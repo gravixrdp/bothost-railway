@@ -278,8 +278,9 @@ def get_main_reply_keyboard(user_id: int) -> ReplyKeyboardMarkup:
     keyboard.extend([
         [KeyboardButton("⇋ 𝗛𝗼𝘀𝘁 𝗡𝗲𝘄 𝗕𝗼𝘁 ⇋"), KeyboardButton("⇋ 𝗠𝘆 𝗛𝗼𝘀𝘁𝗲𝗱 𝗕𝗼𝘁𝘀 ⇋")],
         [KeyboardButton("⇋ 𝗤𝘂𝗶𝗰𝗸 𝗧𝗲𝗺𝗽𝗹𝗮𝘁𝗲𝘀 ⇋"), KeyboardButton("⇋ 𝗠𝘆 𝗔𝗰𝗰𝗼𝘂𝗻𝘁 & 𝗦𝗹𝗼𝘁𝘀 ⇋")],
-        [KeyboardButton("⇋ 𝗥𝗲𝗳𝗲𝗿 & 𝗘𝗮𝗿𝗻 𝗦𝗹𝗼𝘁𝘀 ⇋"), KeyboardButton("⇋ 𝗖𝘂𝘀𝘁𝗼𝗺𝗲𝗿 𝗦𝘂𝗽𝗽𝗼𝗿𝘁 ⇋")],
-        [KeyboardButton("⇋ 𝗛𝗲𝗹𝗽 & 𝗚𝘂𝗶𝗱𝗲𝗹𝗶𝗻𝗲𝘀 ⇋"), KeyboardButton("⇋ 𝗥𝗲𝗳𝗿𝗲𝘀𝗵 ⇋")]
+        [KeyboardButton("⇋ 𝗥𝗲𝗳𝗲𝗿 & 𝗘𝗮𝗿𝗻 𝗦𝗹𝗼𝘁𝘀 ⇋"), KeyboardButton("⇋ 𝗖𝗵𝗮𝗻𝗻𝗲𝗹 𝗣𝗿𝗼𝗺𝗼𝘁𝗶𝗼𝗻 ⇋")],
+        [KeyboardButton("⇋ 𝗖𝘂𝘀𝘁𝗼𝗺𝗲𝗿 𝗦𝘂𝗽𝗽𝗼𝗿𝘁 ⇋"), KeyboardButton("⇋ 𝗛𝗲𝗹𝗽 & 𝗚𝘂𝗶𝗱𝗲𝗹𝗶𝗻𝗲𝘀 ⇋")],
+        [KeyboardButton("⇋ 𝗥𝗲𝗳𝗿𝗲𝘀𝗵 ⇋")]
     ])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -885,6 +886,45 @@ async def show_support_desk(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔗 <b>Direct Contact:</b> https://t.me/Dravonnbot\n"
         "⚡ <b>Support Hours:</b> 24/7 Community & Technical Assistance\n"
         "</blockquote>"
+    )
+    reply_kb = get_back_to_main_keyboard()
+    await send_clean_screen(update, context, text, reply_markup=reply_kb)
+
+async def show_channel_promotion(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Displays the official Channel Promotion & Mandatory Join Advertising desk."""
+    user = update.effective_user
+    user_id = user.id if user else 0
+    db_user = database.get_or_create_user(user_id)
+    if db_user['is_banned']:
+        msg = (
+            f"{make_header_card('ACCOUNT SUSPENDED', 'Access Denied')}\n\n"
+            "<blockquote>🚫 <b>Access Restricted:</b> Your account has been suspended by the administrator.</blockquote>"
+        )
+        if update.callback_query:
+            await update.callback_query.answer("🚫 Account Suspended", show_alert=True)
+        await send_clean_screen(update, context, msg)
+        return
+
+    is_sub, unjoined = await check_user_subscription(context.bot, user_id)
+    if not is_sub:
+        await send_force_sub_prompt(update, context, unjoined)
+        return
+
+    header = make_header_card("CHANNEL PROMOTION", "Mandatory Force-Sub Growth Engine")
+    text = (
+        f"{header}\n\n"
+        "<blockquote>"
+        "Grow your Telegram channel or community with <b>Guaranteed Organic Reach</b>! Add your channel link to our bot's <b>Mandatory Verification Gatekeeper</b> — every user must subscribe to your channel to unlock bot hosting access.\n\n"
+        "📢 <b>𝗪𝗵𝘆 𝗣𝗿𝗼𝗺𝗼𝘁𝗲 𝗪𝗶𝘁𝗵 𝗨𝘀?</b>\n"
+        "• ⚡ <b>𝟭𝟬𝟬% 𝗥𝗲𝗮𝗹 & 𝗔𝗰𝘁𝗶𝘃𝗲 𝗨𝘀𝗲𝗿𝘀:</b> Real developers & community members.\n"
+        "• 🔒 <b>𝗠𝗮𝗻𝗱𝗮𝘁𝗼𝗿𝘆 𝗝𝗼𝗶𝗻 𝗟𝗼𝗰𝗸:</b> Guaranteed high member retention.\n"
+        "• 🚀 <b>𝗛𝗶𝗴𝗵-𝗩𝗼𝗹𝘂𝗺𝗲 𝗘𝘅𝗽𝗼𝘀𝘂𝗿𝗲:</b> High daily active traffic.\n\n"
+        "💼 <b>𝗛𝗼𝘄 𝘁𝗼 𝗕𝗼𝗼𝗸 𝗬𝗼𝘂𝗿 𝗦𝗹𝗼𝘁:</b>\n"
+        "To get your channel promoted or inquire about available advertising slots, contact our official manager:\n\n"
+        "👉 <b>𝗗𝗠 𝗢𝗻 𝗧𝗲𝗹𝗲𝗴𝗿𝗮𝗺:</b> @Dravonnbot\n"
+        "🔗 <b>𝗗𝗶𝗿𝗲𝗰𝘁 𝗖𝗼𝗻𝘁𝗮𝗰𝘁:</b> https://t.me/Dravonnbot\n"
+        "</blockquote>\n"
+        "💡 <i>Limited promotion slots available. Direct message for current rates and availability!</i>"
     )
     reply_kb = get_back_to_main_keyboard()
     await send_clean_screen(update, context, text, reply_markup=reply_kb)
@@ -1982,6 +2022,16 @@ async def user_text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         or "referral" in clean_lower
     ):
         await show_referral_hub(update, context)
+        return True
+
+    # Channel Promotion & Advertising
+    if (
+        clean_lower in ["channel promotion", "promote your channel", "promote channel", "channel promo", "promo", "/promote", "/promo", "/promotion"]
+        or "channel promotion" in clean_lower
+        or "promote" in clean_lower
+        or "promo" in clean_lower
+    ):
+        await show_channel_promotion(update, context)
         return True
 
     # Help & Guidelines
