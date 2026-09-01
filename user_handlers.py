@@ -243,7 +243,6 @@ def get_force_sub_keyboard(unjoined_channels: list = None) -> InlineKeyboardMark
     return InlineKeyboardMarkup(keyboard)
 
 async def send_force_sub_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE, unjoined_channels: list = None):
-    header = make_header_card("MANDATORY CHANNEL JOIN", "Official Community Verification")
     all_channels = database.get_required_channels() if hasattr(database, "get_required_channels") else []
     channels_to_display = unjoined_channels if (unjoined_channels is not None and len(unjoined_channels) > 0) else all_channels
 
@@ -253,14 +252,13 @@ async def send_force_sub_prompt(update: Update, context: ContextTypes.DEFAULT_TY
         channel_list_text += f"• <b>{html.escape(title)}</b>\n"
 
     text = (
-        f"{header}\n\n"
-        "<blockquote>To access <b>Gravix-Host</b> and deploy your Telegram bots 24/7, "
-        "you must subscribe to the required channel(s) below:</blockquote>\n\n"
-        f"<b>📢 Pending Channels to Join:</b>\n"
-        f"<blockquote>{channel_list_text}</blockquote>\n\n"
-        "<b>👉 Verification Steps:</b>\n"
-        "<blockquote>1. Click and join each pending channel button below.\n"
-        "2. Tap the <b>✅ Verify Membership</b> button to activate your account.</blockquote>"
+        "<b>🔒 JOIN REQUIRED CHANNELS</b>\n"
+        "<i>Quick Verification</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "<blockquote>Please join our official channel(s) to access <b>Gravix-Host</b>:</blockquote>\n\n"
+        f"<b>📢 Pending Channels:</b>\n"
+        f"<blockquote>{channel_list_text}</blockquote>\n"
+        "👇 <i>Join the channel(s) below and tap <b>Verify Membership</b>:</i>"
     )
     keyboard = get_force_sub_keyboard(channels_to_display)
     await send_clean_screen(update, context, text, reply_markup=keyboard)
@@ -279,7 +277,7 @@ async def verify_fsub_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.answer("✅ Verification Successful! Welcome to Gravix-Host.", show_alert=True)
         await start_command(update, context)
     else:
-        await query.answer("⚠️ You haven't joined all required channels yet! Please join and try again.", show_alert=True)
+        await query.answer("⚠️ Please join all pending channels first!", show_alert=True)
         await send_force_sub_prompt(update, context, unjoined)
 
 # ---------------------------------------------------------
@@ -441,21 +439,16 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if maint and user.id != ADMIN_ID:
         maint_notice = "\n<blockquote>⚠️ <b>Notice:</b> System maintenance is currently active. Deployments may be temporarily paused.</blockquote>\n"
 
-    header = make_header_card("GRAVIX-HOST PRO", "100% Free Forever Cloud Hosting")
+    header = make_header_card("GRAVIX-HOST PRO", "Free 24/7 Cloud Bot Hosting")
     safe_name = html.escape(user.first_name or "Developer")
 
     text = (
         f"{header}\n\n"
         f"👋 Welcome, <b>{safe_name}</b>!\n\n"
-        "<blockquote>⚡ <b>𝟭𝟬𝟬% 𝗙𝗥𝗘𝗘 𝟮𝟰/𝟳 𝗗𝗲𝗱𝗶𝗰𝗮𝘁𝗲𝗱 𝗖𝗹𝗼𝘂𝗱 𝗧𝗲𝗹𝗲𝗴𝗿𝗮𝗺 𝗕𝗼𝘁 𝗛𝗼𝘀𝘁𝗶𝗻𝗴</b>\n"
-        "Deploy, monitor, and scale your Python Telegram bots with enterprise-grade reliability and zero cost forever.</blockquote>\n\n"
-        "<b>🚀 Core Platform Features:</b>\n"
-        "<blockquote>• ⚡ <b>𝟭𝟬𝟬% 𝗙𝗥𝗘𝗘 𝟮𝟰/𝟳 𝗗𝗲𝗱𝗶𝗰𝗮𝘁𝗲𝗱 𝗖𝗹𝗼𝘂𝗱 𝗧𝗲𝗹𝗲𝗴𝗿𝗮𝗺 𝗕𝗼𝘁 𝗛𝗼𝘀𝘁𝗶𝗻𝗴</b>\n"
-        "• 🚀 <b>𝗨𝗻𝗹𝗶𝗺𝗶𝘁𝗲𝗱 𝗨𝗽𝘁𝗶𝗺𝗲</b> with Automated Watchdog Monitoring\n"
-        "• 📦 <b>𝗜𝗻𝘀𝘁𝗮𝗻𝘁 𝟭-𝗖𝗹𝗶𝗰𝗸 𝗧𝗲𝗺𝗽𝗹𝗮𝘁𝗲𝘀</b> & Multi-File Script Deployments\n"
-        "• 💾 <b>𝗟𝗶𝘃𝗲 𝗧𝗲𝗹𝗲𝗺𝗲𝘁𝗿𝘆</b>, Console Logs & Custom .env Manager</blockquote>\n"
+        "<blockquote>⚡ <b>100% Free 24/7 Cloud Hosting</b>\n"
+        "Deploy & run your Python Telegram bots with 99.9% uptime and zero cost.</blockquote>\n"
         f"{maint_notice}\n"
-        "👇 <i>Select an option from the persistent menu below to manage your bots:</i>"
+        "👇 <i>Choose an option from the menu below:</i>"
     )
 
     photo_path = os.path.join(os.path.dirname(__file__), "wp14967960.webp")
@@ -807,23 +800,13 @@ async def show_account_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rewarded_slots = ref_stats.get('rewarded_slots', 0)
     ref_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
 
-    header = make_header_card("ACCOUNT QUOTA", "Resource Allocation & Limits")
+    header = make_header_card("MY ACCOUNT & SLOTS", "Resource Quota")
     text = (
         f"{header}\n\n"
-        "<b>👤 Account Identity:</b>\n"
-        f"<blockquote>• <b>𝗨𝘀𝗲𝗿 𝗜𝗗:</b> <code>{user_id}</code>\n"
-        f"• <b>𝗨𝘀𝗲𝗿𝗻𝗮𝗺𝗲:</b> {username_str}\n"
-        "• <b>Plan Tier:</b> <code>100% Free Developer Tier</code></blockquote>\n\n"
-        "<b>📦 Infrastructure Quota:</b>\n"
-        f"<blockquote>• <b>𝗧𝗼𝘁𝗮𝗹 𝗦𝗹𝗼𝘁𝘀:</b> <code>{max_slots}</code>\n"
-        f"• <b>Provisioned Bots:</b> <code>{len(user_bots)} / {max_slots}</code>\n"
-        f"• <b>Active Instances:</b> <code>{running_cnt}</code>\n"
-        f"• <b>𝗔𝘃𝗮𝗶𝗹𝗮𝗯𝗹𝗲 𝗦𝗹𝗼𝘁𝘀:</b> <code>{available_slots}</code></blockquote>\n\n"
-        "<b>🎁 Referral Statistics & Rewards:</b>\n"
-        f"<blockquote>• <b>𝗙𝗿𝗶𝗲𝗻𝗱𝘀 𝗝𝗼𝗶𝗻𝗲𝗱:</b> <code>{total_invited}</code>\n"
-        f"• <b>𝗘𝘅𝘁𝗿𝗮 𝗦𝗹𝗼𝘁𝘀 𝗘𝗮𝗿𝗻𝗲𝗱:</b> <code>+{rewarded_slots} Slots</code>\n"
-        f"• <b>𝗬𝗼𝘂𝗿 𝗜𝗻𝘃𝗶𝘁𝗲 𝗟𝗶𝗻𝗸:</b>\n<code>{ref_link}</code></blockquote>\n\n"
-        "<blockquote>💡 <i>Need additional bot capacity? Share your invite link or contact platform support.</i></blockquote>"
+        f"👤 <b>User:</b> <code>{user_id}</code> ({username_str})\n"
+        f"📦 <b>Slots:</b> <code>{len(user_bots)}/{max_slots} Used</code> (<code>{running_cnt} Running</code>)\n"
+        f"🎁 <b>Referrals:</b> <code>{total_invited} Invited (+{rewarded_slots} Slots)</code>\n\n"
+        f"🔗 <b>Your Referral Link:</b>\n<code>{ref_link}</code>"
     )
     reply_kb = get_back_to_main_keyboard()
     await send_clean_screen(update, context, text, reply_markup=reply_kb)
@@ -847,28 +830,15 @@ async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_force_sub_prompt(update, context, unjoined)
         return
 
-    header = make_header_card("GUIDELINES & HELP", "Quick Start & Deployment Manual")
+    header = make_header_card("HELP & GUIDELINES", "Quick Start Manual")
     text = (
         f"{header}\n\n"
-        "<b>🚀 4-Step Deployment Guide:</b>\n"
-        "<blockquote><b>1️⃣ Obtain a Bot Token:</b>\n"
-        "• Open @BotFather on Telegram.\n"
-        "• Send <code>/newbot</code> and follow prompts to obtain your API Token.\n\n"
-        "<b>2️⃣ Deploy Your Bot:</b>\n"
-        "• Tap <b>⇋ 𝗛𝗼𝘀𝘁 𝗡𝗲𝘄 𝗕𝗼𝘁 ⇋</b> or <b>⇋ 𝗤𝘂𝗶𝗰𝗸 𝗧𝗲𝗺𝗽𝗹𝗮𝘁𝗲𝘀 ⇋</b>.\n"
-        "• Provide your BotFather token.\n"
-        "• Upload your <code>.py</code> file or select a ready-made template.\n\n"
-        "<b>3️⃣ Supported Frameworks:</b>\n"
-        "• <code>python-telegram-bot</code>, <code>aiogram</code>, <code>pyTelegramBotAPI</code>\n"
-        "• <code>requests</code>, <code>httpx</code>, <code>aiohttp</code>, <code>asyncio</code>\n\n"
-        "<b>4️⃣ Lifecycle & Diagnostics:</b>\n"
-        "• Access live logs, restart, and monitor status anytime in <b>⇋ 𝗠𝘆 𝗛𝗼𝘀𝘁𝗲𝗱 𝗕𝗼𝘁𝘀 ⇋</b>.</blockquote>\n\n"
-        "<b>💬 Official Customer Support:</b>\n"
-        "<blockquote>Need assistance with bot hosting, higher slot limits, or technical troubleshooting?\n\n"
-        "🤖 <b>Support Desk Bot:</b> @Dravonnbot\n"
-        "🔗 <b>Direct Contact:</b> https://t.me/Dravonnbot\n"
-        "⚡ <b>Support Hours:</b> 24/7 Community & Technical Assistance</blockquote>\n\n"
-        "<blockquote>💡 <i>For optimal stability, ensure your bot uses standard polling or webhook architectures without hardcoded local paths.</i></blockquote>"
+        "<b>🚀 How to Host Your Bot:</b>\n"
+        "<blockquote>1️⃣ Get a Bot Token from @BotFather\n"
+        "2️⃣ Tap <b>⇋ 𝗛𝗼𝘀𝘁 𝗡𝗲𝘄 𝗕𝗼𝘁 ⇋</b> or <b>⇋ 𝗤𝘂𝗶𝗰𝗸 𝗧𝗲𝗺𝗽𝗹𝗮𝘁𝗲𝘀 ⇋</b>\n"
+        "3️⃣ Send token and upload your <code>.py</code> file\n"
+        "4️⃣ Manage & view logs in <b>⇋ 𝗠𝘆 𝗛𝗼𝘀𝘁𝗲𝗱 𝗕𝗼𝘁𝘀 ⇋</b></blockquote>\n\n"
+        "💬 <b>Support:</b> @Dravonnbot"
     )
     reply_kb = get_back_to_main_keyboard()
     await send_clean_screen(update, context, text, reply_markup=reply_kb)
@@ -893,15 +863,12 @@ async def show_support_desk(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     text = (
-        "<b>💬 OFFICIAL CUSTOMER SUPPORT DESK</b>\n"
-        "<i>24/7 Developer & Technical Help</i>\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "<blockquote>\n"
-        "Need assistance with bot hosting, higher slot limits, or technical troubleshooting?\n\n"
-        "🤖 <b>Support Desk Bot:</b> @Dravonnbot\n"
-        "🔗 <b>Direct Contact:</b> https://t.me/Dravonnbot\n"
-        "⚡ <b>Support Hours:</b> 24/7 Community & Technical Assistance\n"
-        "</blockquote>"
+        "<b>💬 CUSTOMER SUPPORT</b>\n"
+        "<i>24/7 Technical Assistance</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "<blockquote>Need help with bot hosting or extra slots?</blockquote>\n\n"
+        "👉 <b>DM Support:</b> @Dravonnbot\n"
+        "🔗 <a href=\"https://t.me/Dravonnbot\">t.me/Dravonnbot</a>"
     )
     reply_kb = get_back_to_main_keyboard()
     await send_clean_screen(update, context, text, reply_markup=reply_kb)
@@ -926,21 +893,14 @@ async def show_channel_promotion(update: Update, context: ContextTypes.DEFAULT_T
         await send_force_sub_prompt(update, context, unjoined)
         return
 
-    header = make_header_card("CHANNEL PROMOTION", "Mandatory Force-Sub Growth Engine")
+    header = make_header_card("CHANNEL PROMOTION", "Mandatory Join Advertising")
     text = (
         f"{header}\n\n"
-        "<blockquote>"
-        "Grow your Telegram channel or community with <b>Guaranteed Organic Reach</b>! Add your channel link to our bot's <b>Mandatory Verification Gatekeeper</b> — every user must subscribe to your channel to unlock bot hosting access.\n\n"
-        "📢 <b>𝗪𝗵𝘆 𝗣𝗿𝗼𝗺𝗼𝘁𝗲 𝗪𝗶𝘁𝗵 𝗨𝘀?</b>\n"
-        "• ⚡ <b>𝟭𝟬𝟬% 𝗥𝗲𝗮𝗹 & 𝗔𝗰𝘁𝗶𝘃𝗲 𝗨𝘀𝗲𝗿𝘀:</b> Real developers & community members.\n"
-        "• 🔒 <b>𝗠𝗮𝗻𝗱𝗮𝘁𝗼𝗿𝘆 𝗝𝗼𝗶𝗻 𝗟𝗼𝗰𝗸:</b> Guaranteed high member retention.\n"
-        "• 🚀 <b>𝗛𝗶𝗴𝗵-𝗩𝗼𝗹𝘂𝗺𝗲 𝗘𝘅𝗽𝗼𝘀𝘂𝗿𝗲:</b> High daily active traffic.\n\n"
-        "💼 <b>𝗛𝗼𝘄 𝘁𝗼 𝗕𝗼𝗼𝗸 𝗬𝗼𝘂𝗿 𝗦𝗹𝗼𝘁:</b>\n"
-        "To get your channel promoted or inquire about available advertising slots, contact our official manager:\n\n"
-        "👉 <b>𝗗𝗠 𝗢𝗻 𝗧𝗲𝗹𝗲𝗴𝗿𝗮𝗺:</b> @Dravonnbot\n"
-        "🔗 <b>𝗗𝗶𝗿𝗲𝗰𝘁 𝗖𝗼𝗻𝘁𝗮𝗰𝘁:</b> https://t.me/Dravonnbot\n"
-        "</blockquote>\n"
-        "💡 <i>Limited promotion slots available. Direct message for current rates and availability!</i>"
+        "<blockquote>Promote your Telegram channel with <b>Guaranteed Organic Reach</b> & Mandatory Join Lock!</blockquote>\n\n"
+        "💬 <b>Book Promotion Slot:</b>\n"
+        "<blockquote>👉 <b>DM:</b> @Dravonnbot\n"
+        "🔗 <a href=\"https://t.me/Dravonnbot\">t.me/Dravonnbot</a></blockquote>\n\n"
+        "💡 <i>DM for current rates and availability.</i>"
     )
     reply_kb = get_back_to_main_keyboard()
     await send_clean_screen(update, context, text, reply_markup=reply_kb)
@@ -977,18 +937,13 @@ async def show_referral_hub(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rewarded_slots = ref_stats.get('rewarded_slots', 0)
 
     text = (
-        "<b>🎁 REFER & EARN EXTRA BOT SLOTS</b>\n"
-        "<i>Viral Growth & Community Rewards</i>\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "<blockquote>\n"
-        "Invite your friends and developer colleagues to Gravix-Host. For every friend who joins and subscribes to our community channels, you automatically receive <b>+1 Extra Permanent Hosting Slot</b>!\n\n"
-        "🔗 <b>𝗬𝗼𝘂𝗿 𝗘𝘅𝗰𝗹𝘂𝘀𝗶𝘃𝗲 𝗜𝗻𝘃𝗶𝘁𝗲 𝗟𝗶𝗻𝗸:</b>\n"
+        "<b>🎁 REFER & EARN SLOTS</b>\n"
+        "<i>Get +1 Free Slot Per Invite</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "<blockquote>Invite friends and earn <b>+1 Permanent Bot Slot</b> per verified invite!</blockquote>\n\n"
+        "🔗 <b>Your Referral Link:</b>\n"
         f"<code>https://t.me/{bot_username}?start=ref_{user_id}</code>\n\n"
-        "📊 <b>𝗬𝗼𝘂𝗿 𝗥𝗲𝗳𝗲𝗿𝗿𝗮𝗹 𝗧𝗲𝗹𝗲𝗺𝗲𝘁𝗿𝘆:</b>\n"
-        f"👥 <b>𝗙𝗿𝗶𝗲𝗻𝗱𝘀 𝗝𝗼𝗶𝗻𝗲𝗱:</b> <code>{total_invited}</code>\n"
-        f"🎁 <b>𝗘𝘅𝘁𝗿𝗮 𝗦𝗹𝗼𝘁𝘀 𝗘𝗮𝗿𝗻𝗲𝗱:</b> <code>+{rewarded_slots} Slots</code>\n"
-        "</blockquote>\n"
-        "💡 <i>Share your link in Telegram groups or channels to unlock unlimited free bot hosting capacity!</i>"
+        f"👥 <b>Invited:</b> <code>{total_invited}</code>  |  🎁 <b>Slots Earned:</b> <code>+{rewarded_slots}</code>"
     )
 
     reply_kb = get_back_to_main_keyboard()
