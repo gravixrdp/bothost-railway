@@ -35,6 +35,7 @@ from admin_handlers import (
     admin_fsub_test_admin_status_handler,
     admin_toggle_maint_handler,
     admin_broadcast_prompt_handler,
+    admin_check_blocked_users_handler,
     admin_exit_handler,
     handle_admin_callback,
     handle_admin_text,
@@ -565,9 +566,14 @@ def main():
         admin_stats_handler
     ))
 
-    # 6. Admin Users Management
+    # 6. Admin Users Management & Reachability
+    application.add_handler(CommandHandler(["checkusers", "checkblocked", "audience"], admin_check_blocked_users_handler))
     application.add_handler(MessageHandler(
-        NormalizedRegex(r"^(?:[👥🔙⇋⇆⇌⇄]\s*)?(?:User Manager|Back to Users|Users|𝗨𝘀𝗲𝗿 𝗠𝗮𝗻𝗮𝗴𝗲𝗿|𝗕𝗮𝗰𝗸 𝘁𝗼 𝗨𝘀𝗲𝗿𝘀)(?:\s*[⇋⇆⇌⇄])?$"),
+        NormalizedRegex(r"^(?:[🔍👥⚡⇋⇆⇌⇄]\s*)?(?:Check Blocked Users|Blocked Users|Check Blocked|Audience Health|Check Audience|𝗖𝗵𝗲𝗰𝗸 𝗕𝗹𝗼𝗰𝗸𝗲𝗱 𝗨𝘀𝗲𝗿𝘀)(?:\s*[⇋⇆⇌⇄])?$"),
+        admin_check_blocked_users_handler
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:[👥🔙⇋⇆⇌⇄]\s*)?(?:User Manager|User Directory|Back to Users|Users|𝗨𝘀𝗲𝗿 𝗠𝗮𝗻𝗮𝗴𝗲𝗿|𝗨𝘀𝗲𝗿 𝗗𝗶𝗿𝗲𝗰𝘁𝗼𝗿𝘆|𝗕𝗮𝗰𝗸 𝘁𝗼 𝗨𝘀𝗲𝗿𝘀)(?:\s*[⇋⇆⇌⇄])?$"),
         admin_users_list_handler
     ))
     application.add_handler(MessageHandler(

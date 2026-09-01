@@ -3,8 +3,10 @@ import re
 import html
 import shutil
 import psutil
+import asyncio
 import logging
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.constants import ChatAction
 from telegram.ext import (
     ContextTypes,
     ConversationHandler,
@@ -126,9 +128,10 @@ async def resolve_user_profile(bot, u: dict) -> dict:
 def get_admin_reply_keyboard(maint_status: str) -> ReplyKeyboardMarkup:
     clean_status = re.sub(r"[^\w\s\(\)]", "", str(maint_status)).strip() if maint_status else "OFF"
     keyboard = [
-        [KeyboardButton("⇋ 𝗦𝘆𝘀𝘁𝗲𝗺 𝗦𝘁𝗮𝘁𝘀 ⇋"), KeyboardButton("⇋ 𝗨𝘀𝗲𝗿 𝗠𝗮𝗻𝗮𝗴𝗲𝗿 ⇋")],
+        [KeyboardButton("⇋ 𝗦𝘆𝘀𝘁𝗲𝗺 𝗦𝘁𝗮𝘁𝘀 ⇋"), KeyboardButton("⇋ 𝗨𝘀𝗲𝗿 𝗗𝗶𝗿𝗲𝗰𝘁𝗼𝗿𝘆 ⇋")],
         [KeyboardButton("⇋ 𝗔𝗹𝗹 𝗛𝗼𝘀𝘁𝗲𝗱 𝗕𝗼𝘁𝘀 ⇋"), KeyboardButton("⇋ 𝗙𝗼𝗿𝗰𝗲-𝗦𝘂𝗯 𝗖𝗵𝗮𝗻𝗻𝗲𝗹𝘀 ⇋")],
-        [KeyboardButton("⇋ 𝗕𝗿𝗼𝗮𝗱𝗰𝗮𝘀𝘁 ⇋"), KeyboardButton(f"⇋ 𝗧𝗼𝗴𝗴𝗹𝗲 𝗠𝗮𝗶𝗻𝘁𝗲𝗻𝗮𝗻𝗰𝗲 ({clean_status}) ⇋")],
+        [KeyboardButton("⇋ 𝗕𝗿𝗼𝗮𝗱𝗰𝗮𝘀𝘁 ⇋"), KeyboardButton("⇋ 𝗖𝗵𝗲𝗰𝗸 𝗕𝗹𝗼𝗰𝗸𝗲𝗱 𝗨𝘀𝗲𝗿𝘀 ⇋")],
+        [KeyboardButton(f"⇋ 𝗧𝗼𝗴𝗴𝗹𝗲 𝗠𝗮𝗶𝗻𝘁𝗲𝗻𝗮𝗻𝗰𝗲 ({clean_status}) ⇋")],
         [KeyboardButton("⇋ 𝗥𝗲𝗳𝗿𝗲𝘀𝗵 𝗔𝗱𝗺𝗶𝗻 ⇋"), KeyboardButton("⇋ 𝗘𝘅𝗶𝘁 𝗔𝗱𝗺𝗶𝗻 ⇋")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -244,7 +247,11 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     maint = database.get_setting("maintenance_mode", "0") == "1"
     maint_status = "🔴 ON" if maint else "🟢 OFF"
 
-    users = database.get_all_users()
+    user_stats = database.get_user_stats_summary()
+    total_users = user_stats['total']
+    active_users = user_stats['active']
+    blocked_users = user_stats['blocked']
+
     bots = database.get_all_hosted_bots()
     running_bots = sum(1 for b in bots if b.get('status') == 'RUNNING')
 
@@ -255,7 +262,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<blockquote>"
         f"👑 <b>Admin:</b> <code>{user_id}</code>\n"
         f"⚙️ <b>Maintenance:</b> <code>{maint_status}</code>\n"
-        f"👥 <b>Users:</b> <code>{len(users)}</code>\n"
+        f"👥 <b>Users:</b> <code>{total_users}</code> (🟢 <code>{active_users}</code> Active | 🔴 <code>{blocked_users}</code> Blocked)\n"
         f"🤖 <b>Bots:</b> <code>{running_bots} Active / {len(bots)} Total</code>"
         "</blockquote>\n\n"
         "👇 <i>Select an option below:</i>"
@@ -269,12 +276,13 @@ async def admin_stats_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         await _send_admin_msg(update, "⛔ <b>Access Denied.</b>", context=context)
         return
 
-    users = database.get_all_users()
-    bots = database.get_all_hosted_bots()
+    user_stats = database.get_user_stats_summary()
+    total_users = user_stats['total']
+    active_users = user_stats['active']
+    blocked_users = user_stats['blocked']
 
+    bots = database.get_all_hosted_bots()
     running_bots = sum(1 for b in bots if b.get('status') == 'RUNNING')
-    stopped_bots = sum(1 for b in bots if b.get('status') == 'STOPPED')
-    failed_bots = sum(1 for b in bots if b.get('status') in ['FAILED', 'CRASHED'])
 
     cpu_percent = psutil.cpu_percent(interval=None)
     mem = psutil.virtual_memory()
@@ -295,13 +303,16 @@ async def admin_stats_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         "<i>Server & Infrastructure Metrics</i>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "<blockquote>"
-        f"👥 <b>Users:</b> <code>{len(users)}</code> | 🤖 <b>Bots:</b> <code>{len(bots)}</code> (🟢 <code>{running_bots}</code> Active)\n\n"
+        f"👥 <b>Users:</b> <code>{total_users}</code> (🟢 <code>{active_users}</code> Active | 🔴 <code>{blocked_users}</code> Blocked)\n"
+        f"🤖 <b>Bots:</b> <code>{len(bots)}</code> (🟢 <code>{running_bots}</code> Active)\n\n"
         f"⚡ <b>CPU:</b> <code>{cpu_bar} {cpu_percent}%</code>\n"
         f"💾 <b>RAM:</b> <code>{ram_bar} {mem.percent}%</code> (<code>{ram_used_mb}MB / {ram_total_mb}MB</code>)\n"
         f"💽 <b>Disk:</b> <code>{disk_bar} {disk.percent}%</code> (<code>{disk_free_gb}GB Free / {disk_total_gb}GB</code>)"
         "</blockquote>"
     )
-    reply_markup = ReplyKeyboardMarkup([[KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻 ⇋")]], resize_keyboard=True)
+    reply_markup = ReplyKeyboardMarkup([
+        [KeyboardButton("⇋ 𝗖𝗵𝗲𝗰𝗸 𝗕𝗹𝗼𝗰𝗸𝗲𝗱 𝗨𝘀𝗲𝗿𝘀 ⇋"), KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻 ⇋")]
+    ], resize_keyboard=True)
     await _send_admin_msg(update, text, reply_markup=reply_markup, context=context)
 
 async def admin_users_list_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
@@ -333,11 +344,15 @@ async def admin_users_list_handler(update: Update, context: ContextTypes.DEFAULT
         text += "<blockquote>"
         entries = []
         for idx, u in enumerate(curr_users, start=curr_page * per_page + 1):
-            banned_badge = " <code>[BANNED]</code>" if u.get('is_banned') else ""
+            badge = ""
+            if u.get('is_banned'):
+                badge = " <code>[BANNED]</code>"
+            elif u.get('is_blocked'):
+                badge = " <code>[BLOCKED BOT]</code>"
             display_name = html.escape(get_user_display_name(u))
             slots = u.get('max_slots', 3)
             entries.append(
-                f"<b>{idx}. {display_name}</b> (UID: <code>{u['user_id']}</code>){banned_badge}\n"
+                f"<b>{idx}. {display_name}</b> (UID: <code>{u['user_id']}</code>){badge}\n"
                 f"   └ Slots: <code>{slots}</code>"
             )
         text += "\n\n".join(entries) + "</blockquote>\n"
@@ -372,6 +387,9 @@ async def admin_user_detail_handler(update: Update, context: ContextTypes.DEFAUL
     is_banned = bool(target_user.get('is_banned'))
     banned_str = "🔴 <b>Banned (Suspended)</b>" if is_banned else "🟢 <b>Active (Authorized)</b>"
 
+    is_blocked = bool(target_user.get('is_blocked'))
+    reach_str = "🔴 <b>Blocked Bot</b>" if is_blocked else "🟢 <b>Reachable</b>"
+
     raw_first = (target_user.get('first_name') or '').strip()
     raw_uname = (target_user.get('username') or '').strip().lstrip('@')
     name_display = html.escape(raw_first) if raw_first else '<i>None</i>'
@@ -384,6 +402,7 @@ async def admin_user_detail_handler(update: Update, context: ContextTypes.DEFAUL
         "<blockquote>"
         f"👤 <b>Name:</b> {name_display} ({username_display})\n"
         f"🛡️ <b>Status:</b> {banned_str}\n"
+        f"⚡ <b>Reachability:</b> {reach_str}\n"
         f"📦 <b>Slots:</b> <code>{target_user.get('max_slots', 3)}</code>\n"
         f"🤖 <b>Bots:</b> <code>{len(user_bots)}</code> (<code>{running_count}</code> Active)"
         "</blockquote>\n\n"
@@ -914,9 +933,13 @@ async def admin_broadcast_get_message(update: Update, context: ContextTypes.DEFA
                 text=formatted_msg,
                 parse_mode="HTML"
             )
+            database.set_user_blocked(u['user_id'], False)
             success += 1
-        except Exception:
+        except Exception as e:
             failed += 1
+            err = str(e).lower()
+            if "blocked by the user" in err or "bot was blocked" in err or "user is deactivated" in err:
+                database.set_user_blocked(u['user_id'], True)
 
     report_text = (
         "<b>✅ BROADCAST COMPLETION REPORT</b>\n"
@@ -995,9 +1018,13 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text=formatted_msg,
                 parse_mode="HTML"
             )
+            database.set_user_blocked(u['user_id'], False)
             success += 1
-        except Exception:
+        except Exception as e:
             failed += 1
+            err = str(e).lower()
+            if "blocked by the user" in err or "bot was blocked" in err or "user is deactivated" in err:
+                database.set_user_blocked(u['user_id'], True)
 
     report_text = (
         "<b>✅ BROADCAST COMPLETION REPORT</b>\n"
@@ -1016,6 +1043,78 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _send_admin_msg(update, report_text, context=context)
     else:
         await _send_admin_msg(update, report_text, context=context)
+
+async def admin_check_blocked_users_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Deep live Telegram API probe checking how many users have blocked the bot."""
+    admin_id = update.effective_user.id
+    if not is_admin(admin_id):
+        await _send_admin_msg(update, "⛔ <b>Access Denied.</b>", context=context)
+        return
+
+    users = database.get_all_users()
+    total = len(users)
+    if total == 0:
+        await _send_admin_msg(update, "<blockquote>No registered users found in database.</blockquote>", context=context)
+        return
+
+    prog_msg = await _send_admin_msg(update, f"⏳ <b>Testing reachability for <code>{total}</code> users via Telegram API...</b>", context=context)
+
+    active_cnt = 0
+    blocked_cnt = 0
+    banned_cnt = 0
+    deactivated_cnt = 0
+
+    for u in users:
+        uid = u['user_id']
+        if u.get('is_banned'):
+            banned_cnt += 1
+            continue
+
+        try:
+            # send_chat_action silently checks if bot is blocked without sending a message
+            await context.bot.send_chat_action(chat_id=uid, action=ChatAction.TYPING)
+            database.set_user_blocked(uid, False)
+            active_cnt += 1
+        except Exception as e:
+            err = str(e).lower()
+            if "blocked by the user" in err or "bot was blocked" in err:
+                database.set_user_blocked(uid, True)
+                blocked_cnt += 1
+            elif "user is deactivated" in err or "chat not found" in err:
+                database.set_user_blocked(uid, True)
+                deactivated_cnt += 1
+            else:
+                active_cnt += 1
+        await asyncio.sleep(0.04)
+
+    retention_rate = (active_cnt / total * 100.0) if total > 0 else 0.0
+
+    report = (
+        "<b>👥 AUDIENCE HEALTH & BLOCK REPORT</b>\n"
+        "<i>Real-time Reachability Diagnostics</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "<blockquote>"
+        f"👥 <b>Total Users:</b> <code>{total}</code>\n"
+        f"🟢 <b>Active (Reachable):</b> <code>{active_cnt}</code> ({retention_rate:.1f}%)\n"
+        f"🔴 <b>Blocked Bot:</b> <code>{blocked_cnt}</code>\n"
+        f"⚫ <b>Deactivated Accounts:</b> <code>{deactivated_cnt}</code>\n"
+        f"🚫 <b>Banned Users:</b> <code>{banned_cnt}</code>"
+        "</blockquote>\n\n"
+        "💡 <i>User reachability telemetry updated live in database.</i>"
+    )
+
+    reply_markup = ReplyKeyboardMarkup([
+        [KeyboardButton("⇋ 𝗖𝗵𝗲𝗰𝗸 𝗕𝗹𝗼𝗰𝗸𝗲𝗱 𝗨𝘀𝗲𝗿𝘀 ⇋"), KeyboardButton("⇋ 𝗨𝘀𝗲𝗿 𝗗𝗶𝗿𝗲𝗰𝘁𝗼𝗿𝘆 ⇋")],
+        [KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻 ⇋")]
+    ], resize_keyboard=True)
+
+    if prog_msg:
+        try:
+            await prog_msg.edit_text(report, parse_mode="HTML", reply_markup=reply_markup)
+        except Exception:
+            await _send_admin_msg(update, report, reply_markup=reply_markup, context=context)
+    else:
+        await _send_admin_msg(update, report, reply_markup=reply_markup, context=context)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1389,8 +1488,17 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await admin_stats_handler(update, context)
         return True
 
-    if stripped in ["User Manager", "👥 User Manager"] or clean_text in ["User Manager", "👥 User Manager"]:
+    if stripped in ["User Manager", "👥 User Manager", "User Directory", "👥 User Directory"] or clean_text in ["User Manager", "👥 User Manager", "User Directory", "👥 User Directory"]:
         await admin_users_list_handler(update, context, 0)
+        return True
+
+    if (
+        stripped in ["Check Blocked Users", "Blocked Users", "Audience Health", "Check Audience", "🔍 Check Blocked Users", "𝗖𝗵𝗲𝗰𝗸 𝗕𝗹𝗼𝗰𝗸𝗲𝗱 𝗨𝘀𝗲𝗿𝘀"]
+        or "Check Blocked Users" in stripped
+        or "Blocked Users" in stripped
+        or "Check Blocked" in clean_text
+    ):
+        await admin_check_blocked_users_handler(update, context)
         return True
 
     if stripped in ["All Hosted Bots", "🤖 All Hosted Bots"] or clean_text in ["All Hosted Bots", "🤖 All Hosted Bots"]:

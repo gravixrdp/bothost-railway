@@ -33,10 +33,17 @@ def init_db():
             username TEXT,
             first_name TEXT,
             is_banned INTEGER DEFAULT 0,
+            is_blocked INTEGER DEFAULT 0,
             max_slots INTEGER DEFAULT 3,
             joined_at TEXT
         )
         """)
+        
+        # Auto-migrate is_blocked column if existing table lacks it
+        cursor.execute("PRAGMA table_info(users)")
+        existing_cols = [row[1] for row in cursor.fetchall()]
+        if 'is_blocked' not in existing_cols:
+            cursor.execute("ALTER TABLE users ADD COLUMN is_blocked INTEGER DEFAULT 0")
         
         # Hosted bots table
         cursor.execute("""
@@ -174,6 +181,8 @@ def get_or_create_user(user_id: int, username: str = "", first_name: str = "") -
             if first_name and current_first_name != first_name:
                 updates.append("first_name = ?")
                 params.append(str(first_name))
+            if user.get('is_blocked') == 1:
+                updates.append("is_blocked = 0")
                 
             if updates:
                 params.append(uid)
@@ -203,6 +212,38 @@ def get_all_users() -> List[Dict[str, Any]]:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM users ORDER BY joined_at DESC")
         return [dict(row) for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+def set_user_blocked(user_id: int, is_blocked: bool):
+    """Sets whether a user has blocked the bot or is active."""
+    uid = int(user_id)
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE users SET is_blocked = ? WHERE user_id = ?", (1 if is_blocked else 0, uid))
+        conn.commit()
+    finally:
+        conn.close()
+
+def get_user_stats_summary() -> Dict[str, Any]:
+    """Returns comprehensive user counts: total, active, blocked, and banned."""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) as total FROM users")
+        total = cursor.fetchone()['total'] or 0
+        cursor.execute("SELECT COUNT(*) as blocked FROM users WHERE is_blocked = 1")
+        blocked = cursor.fetchone()['blocked'] or 0
+        cursor.execute("SELECT COUNT(*) as banned FROM users WHERE is_banned = 1")
+        banned = cursor.fetchone()['banned'] or 0
+        active = max(0, total - blocked - banned)
+        return {
+            'total': total,
+            'active': active,
+            'blocked': blocked,
+            'banned': banned
+        }
     finally:
         conn.close()
 
