@@ -115,7 +115,7 @@ def init_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_required_channels_created ON required_channels(created_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_bot_env_vars_bot_id ON bot_env_vars(bot_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_history_user ON chat_history(user_id, rowid)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_history_user ON chat_history(user_id)")
         
         # Seed default required channels if empty
         cursor.execute("SELECT COUNT(*) as count FROM required_channels")
