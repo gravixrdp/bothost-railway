@@ -226,8 +226,9 @@ def get_force_sub_keyboard(unjoined_channels: list = None) -> InlineKeyboardMark
             {"channel_id": "@GravixRDP", "title": "GravixRDP Official", "invite_link": "https://t.me/GravixRDP"},
             {"channel_id": "https://t.me/+lD-MufapiQVhMGFl", "title": "Gravix Updates", "invite_link": "https://t.me/+lD-MufapiQVhMGFl"}
         ]
+    channels_to_display = unjoined_channels if (unjoined_channels is not None and len(unjoined_channels) > 0) else all_channels
     keyboard = []
-    for ch in all_channels:
+    for ch in channels_to_display:
         title = ch.get("title", "Channel") if isinstance(ch, dict) else ch["title"]
         link = ch.get("invite_link", "") if isinstance(ch, dict) else ch["invite_link"]
         if not link:
@@ -244,22 +245,24 @@ def get_force_sub_keyboard(unjoined_channels: list = None) -> InlineKeyboardMark
 async def send_force_sub_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE, unjoined_channels: list = None):
     header = make_header_card("MANDATORY CHANNEL JOIN", "Official Community Verification")
     all_channels = database.get_required_channels() if hasattr(database, "get_required_channels") else []
+    channels_to_display = unjoined_channels if (unjoined_channels is not None and len(unjoined_channels) > 0) else all_channels
+
     channel_list_text = ""
-    for ch in all_channels:
+    for ch in channels_to_display:
         title = ch.get("title", "Channel") if isinstance(ch, dict) else ch["title"]
         channel_list_text += f"• <b>{html.escape(title)}</b>\n"
 
     text = (
         f"{header}\n\n"
         "<blockquote>To access <b>Gravix-Host</b> and deploy your Telegram bots 24/7, "
-        "you must subscribe to <b>ALL</b> our official community channels below:</blockquote>\n\n"
-        f"<b>📢 Required Channels:</b>\n"
+        "you must subscribe to the required channel(s) below:</blockquote>\n\n"
+        f"<b>📢 Pending Channels to Join:</b>\n"
         f"<blockquote>{channel_list_text}</blockquote>\n\n"
         "<b>👉 Verification Steps:</b>\n"
-        "<blockquote>1. Click and join each official channel below.\n"
+        "<blockquote>1. Click and join each pending channel button below.\n"
         "2. Tap the <b>✅ Verify Membership</b> button to activate your account.</blockquote>"
     )
-    keyboard = get_force_sub_keyboard(unjoined_channels)
+    keyboard = get_force_sub_keyboard(channels_to_display)
     await send_clean_screen(update, context, text, reply_markup=keyboard)
 
 async def verify_fsub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
