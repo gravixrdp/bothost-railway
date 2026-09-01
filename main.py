@@ -32,6 +32,7 @@ from admin_handlers import (
     admin_bot_action_handler,
     admin_fsub_list_handler,
     admin_fsub_del_handler,
+    admin_fsub_test_admin_status_handler,
     admin_toggle_maint_handler,
     admin_broadcast_prompt_handler,
     admin_exit_handler,
@@ -608,6 +609,10 @@ def main():
     application.add_handler(MessageHandler(
         NormalizedRegex(r"^(?:[⬅️⇋⇆⇌⇄]\s*)?(?:Prev FSub|Prev Channels|𝗣𝗿𝗲𝘃 𝗙𝗦𝘂𝗯)|(?:Next FSub|Next Channels|𝗡𝗲𝘅𝘁 𝗙𝗦𝘂𝗯)(?:\s*[➡️⇋⇆⇌⇄])?$"),
         handle_admin_text
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:[🔍⚡⇋⇆⇌⇄]\s*)?(?:Test Bot Admin Status|Check Bot Admin Status|Test Admin Status|Bot Admin Status|Test Channels|Check Channels|𝗧𝗲𝘀𝘁 𝗕𝗼𝘁 𝗔𝗱𝗺𝗶𝗻 𝗦𝘁𝗮𝘁𝘂𝘀)(?:\s*[⇋⇆⇌⇄])?$"),
+        admin_fsub_test_admin_status_handler
     ))
     application.add_handler(MessageHandler(
         NormalizedRegex(r"^(?:[🗑️⇋⇆⇌⇄]\s*)?(?:Remove|Delete|Remove Channel|𝗥𝗲𝗺𝗼𝘃𝗲)\s+.+\s+\[.+\](?:\s*[⇋⇆⇌⇄])?$"),

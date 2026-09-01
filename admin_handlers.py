@@ -217,7 +217,10 @@ def get_admin_fsub_reply_keyboard(channels: list, page: int = 0) -> ReplyKeyboar
     if nav_row:
         keyboard.append(nav_row)
 
-    keyboard.append([KeyboardButton("⇋ 𝗔𝗱𝗱 𝗙𝗼𝗿𝗰𝗲-𝗦𝘂𝗯 𝗖𝗵𝗮𝗻𝗻𝗲𝗹 ⇋")])
+    keyboard.append([
+        KeyboardButton("⇋ 𝗧𝗲𝘀𝘁 𝗕𝗼𝘁 𝗔𝗱𝗺𝗶𝗻 𝗦𝘁𝗮𝘁𝘂𝘀 ⇋"),
+        KeyboardButton("⇋ 𝗔𝗱𝗱 𝗙𝗼𝗿𝗰𝗲-𝗦𝘂𝗯 𝗖𝗵𝗮𝗻𝗻𝗲𝗹 ⇋")
+    ])
     keyboard.append([KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻 ⇋")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -646,6 +649,48 @@ async def admin_bot_action_handler(update: Update, context: ContextTypes.DEFAULT
         )
         await admin_bots_list_handler(update, context, 0)
 
+async def check_channel_bot_admin_status(bot, channel_id: str) -> tuple[bool, str, str]:
+    """
+    Checks if the master bot is an administrator in the specified channel.
+    Returns: (is_admin, status_badge, details_str)
+    """
+    cid_str = str(channel_id).strip()
+    target_chat = None
+
+    if cid_str.startswith("-100") or (cid_str.startswith("-") and cid_str[1:].isdigit()):
+        target_chat = int(cid_str)
+    elif cid_str.isdigit():
+        target_chat = int(f"-100{cid_str}")
+    elif cid_str.startswith("@"):
+        target_chat = cid_str
+    elif "t.me/" in cid_str:
+        slug = cid_str.split("t.me/")[-1].strip().lstrip("@")
+        if not slug.startswith("+") and not slug.startswith("joinchat/") and "/" not in slug and slug:
+            target_chat = f"@{slug}"
+
+    if not target_chat:
+        return False, "⚪ <code>Raw Invite Link</code>", "Private invite link without numeric ID. Add bot to channel as Admin to capture real ID."
+
+    try:
+        chat = await bot.get_chat(chat_id=target_chat)
+        member = await bot.get_chat_member(chat_id=target_chat, user_id=bot.id)
+        if member.status in ("administrator", "creator"):
+            chat_title = html.escape(chat.title or "Channel")
+            return True, "🟢 <code>ADMIN CONFIRMED</code>", f"Bot is verified Admin in <b>{chat_title}</b> (Can enforce verification 100%)."
+        else:
+            chat_title = html.escape(chat.title or "Channel")
+            return False, "🟡 <code>MEMBER (NOT ADMIN)</code>", f"Bot is in <b>{chat_title}</b> but lacks Admin privileges."
+    except Exception as e:
+        err = str(e).lower()
+        if "chat not found" in err:
+            return False, "🔴 <code>CHAT NOT FOUND</code>", "Telegram cannot resolve this chat. Check username or add bot."
+        elif "bot is not a member" in err:
+            return False, "🔴 <code>BOT NOT IN CHANNEL</code>", "Master bot is not present in this channel."
+        elif "chat_admin_required" in err or "not enough rights" in err:
+            return False, "🟡 <code>ADMIN RIGHTS REQUIRED</code>", "Bot needs Administrator rights with Invite Users permission."
+        else:
+            return False, "🔴 <code>UNREACHABLE</code>", html.escape(str(e))
+
 async def admin_fsub_list_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
     user_id = update.effective_user.id
     if not is_admin(user_id):
@@ -674,15 +719,51 @@ async def admin_fsub_list_handler(update: Update, context: ContextTypes.DEFAULT_
             ch_title = html.escape(ch.get('title', 'Channel'))
             ch_id = html.escape(str(ch.get('channel_id', '')))
             ch_link = html.escape(ch.get('invite_link', ''))
+            is_adm, badge, _ = await check_channel_bot_admin_status(context.bot, ch.get('channel_id', ''))
             entries.append(
                 f"{idx}. <b>{ch_title}</b>\n"
-                f"   ├ 🆔 ID: <code>{ch_id}</code>\n"
-                f"   └ 🔗 Link: <a href=\"{ch_link}\">{ch_link}</a>"
+                f"   ├ 🆔 <b>ID:</b> <code>{ch_id}</code>\n"
+                f"   ├ ⚡ <b>Bot Admin:</b> {badge}\n"
+                f"   └ 🔗 <b>Link:</b> <a href=\"{ch_link}\">{ch_link}</a>"
             )
         text += "\n\n".join(entries) + "</blockquote>\n"
 
-    text += "\n💡 <i>Users must join all listed channels before accessing platform features. Tap a channel button below to remove it or add a new channel:</i>"
+    text += "\n💡 <i>Tap <b>⇋ 𝗧𝗲𝘀𝘁 𝗕𝗼𝘁 𝗔𝗱𝗺𝗶𝗻 𝗦𝘁𝗮𝘁𝘂𝘀 ⇋</b> to probe all channels or tap a channel button to remove:</i>"
     reply_markup = get_admin_fsub_reply_keyboard(channels, curr_page)
+    await _send_admin_msg(update, text, reply_markup=reply_markup, context=context)
+
+async def admin_fsub_test_admin_status_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Deep diagnostic probe that checks Bot Admin status and permissions across all required channels."""
+    admin_id = update.effective_user.id
+    if not is_admin(admin_id):
+        await _send_admin_msg(update, "⛔ <b>Access Denied.</b>", context=context)
+        return
+
+    channels = database.get_required_channels()
+    if not channels:
+        await _send_admin_msg(update, "⚠️ <i>No force-sub channels configured to test.</i>", context=context)
+        return
+
+    results = []
+    for idx, ch in enumerate(channels, start=1):
+        cid = ch.get('channel_id', '')
+        title = ch.get('title', 'Channel')
+        is_adm, badge, detail = await check_channel_bot_admin_status(context.bot, cid)
+        results.append(
+            f"{idx}. <b>{html.escape(title)}</b> (<code>{html.escape(str(cid))}</code>)\n"
+            f"   ├ ⚡ <b>Status:</b> {badge}\n"
+            f"   └ 📋 <b>Diagnostics:</b> <i>{detail}</i>"
+        )
+
+    header = (
+        "<b>🔍 BOT ADMIN STATUS DIAGNOSTIC REPORT</b>\n"
+        "<i>Live Telegram API Channel Probe</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    )
+    text = f"{header}<blockquote>" + "\n\n".join(results) + "</blockquote>\n\n"
+    text += "💡 <i>Ensure @gravixhostbot is added as Administrator in each channel for 100% reliable automated member verification.</i>"
+
+    reply_markup = get_admin_fsub_reply_keyboard(channels, 0)
     await _send_admin_msg(update, text, reply_markup=reply_markup, context=context)
 
 async def admin_fsub_del_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, channel_id: str = None):
@@ -1380,6 +1461,15 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     if stripped in ["Add Force-Sub Channel", "➕ Add Force-Sub Channel", "Add Channel", "➕ Add Channel"] or clean_text in ["Add Force-Sub Channel", "➕ Add Force-Sub Channel", "Add Channel", "➕ Add Channel"]:
         await admin_fsub_add_start(update, context)
+        return True
+
+    if (
+        stripped in ["Test Bot Admin Status", "Check Bot Admin Status", "Test Admin Status", "Bot Admin Status", "Test Channels", "Check Channels"]
+        or "Test Bot Admin Status" in stripped
+        or "Check Bot Admin Status" in stripped
+        or "Test Admin Status" in stripped
+    ):
+        await admin_fsub_test_admin_status_handler(update, context)
         return True
 
     if "Remove" in stripped and ("[" in clean_text and "]" in clean_text):
