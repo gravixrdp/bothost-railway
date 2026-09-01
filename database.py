@@ -128,12 +128,16 @@ def get_or_create_user(user_id: int, username: str = "", first_name: str = "") -
         else:
             updates = []
             params = []
-            if username and user['username'] != username:
+            current_username = user['username'] or ""
+            current_first_name = user['first_name'] or ""
+            
+            if username and current_username != username:
                 updates.append("username = ?")
                 params.append(str(username))
-            if first_name and user['first_name'] != first_name:
+            if first_name and current_first_name != first_name:
                 updates.append("first_name = ?")
                 params.append(str(first_name))
+                
             if updates:
                 params.append(uid)
                 cursor.execute(f"UPDATE users SET {', '.join(updates)} WHERE user_id = ?", params)
@@ -183,6 +187,21 @@ def set_user_slots(user_id: int, slots: int):
         cursor = conn.cursor()
         cursor.execute("UPDATE users SET max_slots = ? WHERE user_id = ?", (slots_num, uid))
         conn.commit()
+    finally:
+        conn.close()
+
+def adjust_user_slots(user_id: int, delta: int) -> int:
+    uid = int(user_id)
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT max_slots FROM users WHERE user_id = ?", (uid,))
+        row = cursor.fetchone()
+        current_slots = int(row['max_slots']) if row and row['max_slots'] is not None else DEFAULT_MAX_BOTS_PER_USER
+        new_slots = max(1, current_slots + int(delta))
+        cursor.execute("UPDATE users SET max_slots = ? WHERE user_id = ?", (new_slots, uid))
+        conn.commit()
+        return new_slots
     finally:
         conn.close()
 

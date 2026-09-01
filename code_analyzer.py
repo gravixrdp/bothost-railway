@@ -52,6 +52,7 @@ MAIN_MENU_BUTTONS: Set[str] = {
     "⚡ quick template deploy",
     "📊 my account & slots",
     "❓ help & guidelines",
+    "💬 customer support",
     "🔄 refresh",
     "➕ host new bot",
     "➕ host another bot",

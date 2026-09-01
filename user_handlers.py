@@ -169,7 +169,8 @@ def get_main_reply_keyboard(user_id: int) -> ReplyKeyboardMarkup:
     keyboard.extend([
         [KeyboardButton("➕ Host New Bot"), KeyboardButton("🤖 My Hosted Bots")],
         [KeyboardButton("⚡ Quick Template Deploy"), KeyboardButton("📊 My Account & Slots")],
-        [KeyboardButton("❓ Help & Guidelines"), KeyboardButton("🔄 Refresh")]
+        [KeyboardButton("❓ Help & Guidelines"), KeyboardButton("💬 Customer Support")],
+        [KeyboardButton("🔄 Refresh")]
     ])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -696,9 +697,52 @@ async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• <code>requests</code>, <code>httpx</code>, <code>aiohttp</code>, <code>asyncio</code>\n\n"
         "<b>4️⃣ Lifecycle & Diagnostics:</b>\n"
         "• Access live logs, restart, and monitor status anytime in <b>🤖 My Hosted Bots</b>.</blockquote>\n\n"
+        "<b>💬 Official Customer Support:</b>\n"
+        "<blockquote>Need assistance with bot hosting, higher slot limits, or technical troubleshooting?\n\n"
+        "🤖 <b>Support Desk Bot:</b> @Dravonnbot\n"
+        "🔗 <b>Direct Contact:</b> https://t.me/Dravonnbot\n"
+        "⚡ <b>Support Hours:</b> 24/7 Community & Technical Assistance</blockquote>\n\n"
         "<blockquote>💡 <i>For optimal stability, ensure your bot uses standard polling or webhook architectures without hardcoded local paths.</i></blockquote>"
     )
     reply_kb = get_back_to_main_keyboard()
+    if update.callback_query:
+        await update.callback_query.message.reply_text(text, reply_markup=reply_kb, parse_mode="HTML")
+    else:
+        await update.message.reply_text(text, reply_markup=reply_kb, parse_mode="HTML")
+
+async def show_support_desk(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    user_id = user.id
+    db_user = database.get_or_create_user(user_id)
+    if db_user['is_banned']:
+        msg = (
+            f"{make_header_card('ACCOUNT SUSPENDED', 'Access Denied')}\n\n"
+            "<blockquote>🚫 <b>Access Restricted:</b> Your account has been suspended by the administrator.</blockquote>"
+        )
+        if update.callback_query:
+            await update.callback_query.answer("🚫 Account Suspended", show_alert=True)
+            await update.effective_message.reply_text(msg, parse_mode="HTML")
+        else:
+            await update.message.reply_text(msg, parse_mode="HTML")
+        return
+
+    is_sub, unjoined = await check_user_subscription(context.bot, user_id)
+    if not is_sub:
+        await send_force_sub_prompt(update, context, unjoined)
+        return
+
+    text = (
+        "<b>💬 OFFICIAL CUSTOMER SUPPORT DESK</b>\n"
+        "<i>24/7 Developer & Technical Help</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        "<blockquote>\n"
+        "Need assistance with bot hosting, higher slot limits, or technical troubleshooting?\n\n"
+        "🤖 <b>Support Desk Bot:</b> @Dravonnbot\n"
+        "🔗 <b>Direct Contact:</b> https://t.me/Dravonnbot\n"
+        "⚡ <b>Support Hours:</b> 24/7 Community & Technical Assistance\n"
+        "</blockquote>"
+    )
+    reply_kb = ReplyKeyboardMarkup([[KeyboardButton("🔙 Back to Main Menu")]], resize_keyboard=True)
     if update.callback_query:
         await update.callback_query.message.reply_text(text, reply_markup=reply_kb, parse_mode="HTML")
     else:
@@ -1462,6 +1506,8 @@ async def user_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
         await show_account_info(update, context)
     elif data == "user_help":
         await show_help(update, context)
+    elif data in ["user_support", "user_helpdesk"]:
+        await show_support_desk(update, context)
     elif data.startswith("user_my_bots_"):
         page = int(data.split("_")[3])
         await show_my_bots(update, context, page=page)
@@ -1538,6 +1584,11 @@ async def user_text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     # Help & Guidelines
     if text in ["❓ Help & Guidelines", "/help"]:
         await show_help(update, context)
+        return True
+
+    # Customer Support Desk
+    if text in ["💬 Customer Support", "/support", "/helpdesk"]:
+        await show_support_desk(update, context)
         return True
 
     # Bot Item Selection: e.g. "🟢 My Bot [#a1b2c3d4]"

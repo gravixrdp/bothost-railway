@@ -40,13 +40,15 @@ from admin_handlers import (
     admin_fsub_cancel,
     A_FSUB_ID,
     A_FSUB_TITLE,
-    A_FSUB_LINK
+    A_FSUB_LINK,
+    admin_slots_conv
 )
 from user_handlers import (
     start_command,
     show_my_bots,
     show_account_info,
     show_help,
+    show_support_desk,
     show_templates_menu,
     show_bot_details,
     handle_bot_action,
@@ -220,12 +222,15 @@ def main():
     application.add_handler(CommandHandler("admin", admin_panel))
     application.add_handler(CommandHandler("broadcast", broadcast_command))
     application.add_handler(CommandHandler("help", show_help))
+    application.add_handler(CommandHandler("support", show_support_desk))
+    application.add_handler(CommandHandler("helpdesk", show_support_desk))
     application.add_handler(CommandHandler("mybots", show_my_bots))
 
     # 2. Multi-Step Conversation Handlers
     application.add_handler(host_conv)
     application.add_handler(tpl_conv)
     application.add_handler(admin_fsub_conv)
+    application.add_handler(admin_slots_conv)
 
     # 3. User Navigation & Primary Menus
     application.add_handler(MessageHandler(filters.Regex("^(🔙 Back to Main Menu|🏠 Main Menu|🔄 Refresh)$"), start_command))
@@ -234,6 +239,7 @@ def main():
     application.add_handler(MessageHandler(filters.Regex("^⚡ Quick Template Deploy$"), show_templates_menu))
     application.add_handler(MessageHandler(filters.Regex("^📊 My Account & Slots$"), show_account_info))
     application.add_handler(MessageHandler(filters.Regex("^❓ Help & Guidelines$"), show_help))
+    application.add_handler(MessageHandler(filters.Regex(r"^(💬 Customer Support|/support|/helpdesk)$"), show_support_desk))
 
     # 4. User Bots Pagination, Details, & Actions
     application.add_handler(MessageHandler(filters.Regex("^(⬅️ Prev Bots|Next Bots ➡️)$"), user_text_router))
@@ -251,7 +257,7 @@ def main():
     application.add_handler(MessageHandler(filters.Regex("^(⬅️ Prev Users|Next Users ➡️)$"), handle_admin_text))
     application.add_handler(MessageHandler(filters.Regex(r"^👤\s+.+\s+\(UID:\s*\d+\)$"), admin_user_detail_handler))
     application.add_handler(MessageHandler(filters.Regex(r"^(?:🔓 Unban User|🚫 Ban User)\s+\[UID:\s*\d+\]$"), admin_user_action_handler))
-    application.add_handler(MessageHandler(filters.Regex(r"^➕ Add \+2 Slots\s+\[UID:\s*\d+\]$"), admin_user_action_handler))
+    application.add_handler(MessageHandler(filters.Regex(r"^(?:➕ \+1 Slot|➖ -1 Slot|➕ Add \+2 Slots)\s+\[UID:\s*\d+\]$"), admin_user_action_handler))
 
     # 7. Admin Bots Management
     application.add_handler(MessageHandler(filters.Regex("^(🤖 All Hosted Bots|🔙 Back to All Bots)$"), admin_bots_list_handler))

@@ -23,6 +23,7 @@ logger = logging.getLogger("GravixHost.Admin")
 # States for admin conversation handlers
 A_WAIT_BROADCAST, A_WAIT_SLOTS_UID, A_WAIT_SLOTS_NUM = range(10, 13)
 A_FSUB_ID, A_FSUB_TITLE, A_FSUB_LINK = range(20, 23)
+A_SET_SLOTS_NUM = 40
 
 def is_admin(user_id: int) -> bool:
     return user_id == ADMIN_ID
@@ -48,6 +49,18 @@ async def _send_admin_msg(update: Update, text: str, reply_markup=None):
 # 1. Admin Keyboard Generators
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+def get_user_display_name(u: dict) -> str:
+    first = (u.get('first_name') or '').strip()
+    uname = (u.get('username') or '').strip().lstrip('@')
+    if first and uname:
+        return f"{first} (@{uname})"
+    elif first:
+        return first
+    elif uname:
+        return f"@{uname}"
+    else:
+        return f"User {u['user_id']}"
+
 def get_admin_reply_keyboard(maint_status: str) -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton("📊 System Stats"), KeyboardButton("👥 User Manager")],
@@ -65,7 +78,7 @@ def get_admin_users_reply_keyboard(users: list, page: int = 0) -> ReplyKeyboardM
 
     keyboard = []
     for u in curr_users:
-        display_name = u.get('username') or u.get('first_name') or f"User_{u['user_id']}"
+        display_name = get_user_display_name(u)
         keyboard.append([KeyboardButton(f"👤 {display_name} (UID: {u['user_id']})")])
 
     nav_row = []
@@ -82,7 +95,9 @@ def get_admin_users_reply_keyboard(users: list, page: int = 0) -> ReplyKeyboardM
 def get_admin_user_detail_keyboard(target_uid: int, is_banned: bool) -> ReplyKeyboardMarkup:
     ban_label = "🔓 Unban User" if is_banned else "🚫 Ban User"
     keyboard = [
-        [KeyboardButton(f"{ban_label} [UID: {target_uid}]"), KeyboardButton(f"➕ Add +2 Slots [UID: {target_uid}]")],
+        [KeyboardButton(f"{ban_label} [UID: {target_uid}]")],
+        [KeyboardButton(f"➕ +1 Slot [UID: {target_uid}]"), KeyboardButton(f"➖ -1 Slot [UID: {target_uid}]")],
+        [KeyboardButton(f"✏️ Set Custom Slots [UID: {target_uid}]")],
         [KeyboardButton("🔙 Back to Users"), KeyboardButton("🏠 Back to Admin")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -252,16 +267,11 @@ async def admin_users_list_handler(update: Update, context: ContextTypes.DEFAULT
         entries = []
         for idx, u in enumerate(curr_users, start=curr_page * per_page + 1):
             banned_badge = " <code>[BANNED]</code>" if u.get('is_banned') else ""
-            raw_uname = u.get('username')
-            if raw_uname:
-                uname = f"@{html.escape(raw_uname)}"
-            else:
-                raw_fname = u.get('first_name') or f"User_{u['user_id']}"
-                uname = html.escape(raw_fname)
+            display_name = html.escape(get_user_display_name(u))
             slots = u.get('max_slots', 3)
             joined = html.escape(str(u.get('joined_at', 'N/A'))[:10])
             entries.append(
-                f"<b>{idx}. {uname}</b> (UID: <code>{u['user_id']}</code>){banned_badge}\n"
+                f"<b>{idx}. {display_name}</b> (UID: <code>{u['user_id']}</code>){banned_badge}\n"
                 f"   └ Slots: <code>{slots}</code> | Joined: <code>{joined}</code>"
             )
         text += "\n\n".join(entries) + "</blockquote>\n"
@@ -292,8 +302,10 @@ async def admin_user_detail_handler(update: Update, context: ContextTypes.DEFAUL
     is_banned = bool(target_user.get('is_banned'))
     banned_str = "🔴 <b>Banned (Suspended)</b>" if is_banned else "🟢 <b>Active (Authorized)</b>"
 
-    display_name = target_user.get('first_name') or target_user.get('username') or f"User_{target_user['user_id']}"
-    username_str = f"@{html.escape(target_user['username'])}" if target_user.get('username') else "<i>None</i>"
+    raw_first = (target_user.get('first_name') or '').strip()
+    raw_uname = (target_user.get('username') or '').strip().lstrip('@')
+    name_display = html.escape(raw_first) if raw_first else '<i>None</i>'
+    username_display = f"@{html.escape(raw_uname)}" if raw_uname else '<i>None</i>'
 
     text = (
         "<b>👤 USER PROFILE INSPECTOR</b>\n"
@@ -301,8 +313,8 @@ async def admin_user_detail_handler(update: Update, context: ContextTypes.DEFAUL
         "━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "<blockquote>"
         f"🆔 <b>User ID:</b> <code>{target_user['user_id']}</code>\n"
-        f"👤 <b>Name:</b> <b>{html.escape(str(display_name))}</b>\n"
-        f"🏷️ <b>Username:</b> {username_str}\n"
+        f"👤 <b>Name:</b> {name_display}\n"
+        f"🏷️ <b>Username:</b> {username_display}\n"
         f"🛡️ <b>Account Status:</b> {banned_str}\n"
         f"📦 <b>Slot Allocation:</b> <code>{target_user.get('max_slots', 3)}</code> bots\n"
         f"🤖 <b>Hosted Instances:</b> <code>{len(user_bots)}</code> (<code>{running_count}</code> Active)\n"
@@ -333,8 +345,10 @@ async def admin_user_action_handler(update: Update, context: ContextTypes.DEFAUL
     if action is None:
         if "Ban User" in text_input or "Unban User" in text_input:
             action = "toggle_ban"
-        elif "Add +2 Slots" in text_input:
+        elif "+1 Slot" in text_input or "+2 Slots" in text_input:
             action = "inc_slots"
+        elif "-1 Slot" in text_input:
+            action = "dec_slots"
 
     target_user = database.get_or_create_user(target_uid)
 
@@ -355,11 +369,17 @@ async def admin_user_action_handler(update: Update, context: ContextTypes.DEFAUL
             )
 
     elif action == "inc_slots":
-        new_slots = target_user.get('max_slots', 3) + 2
-        database.set_user_slots(target_uid, new_slots)
+        new_slots = database.adjust_user_slots(target_uid, 1)
         await _send_admin_msg(
             update,
-            f"➕ <b>SLOTS UPGRADED</b>\nHosting capacity increased to <code>{new_slots}</code> bots for User <code>{target_uid}</code>."
+            f"➕ <b>SLOTS INCREASED</b>\nHosting capacity increased to <code>{new_slots}</code> bots for User <code>{target_uid}</code>."
+        )
+
+    elif action == "dec_slots":
+        new_slots = database.adjust_user_slots(target_uid, -1)
+        await _send_admin_msg(
+            update,
+            f"➖ <b>SLOTS DECREASED</b>\nHosting capacity decreased to <code>{new_slots}</code> bots for User <code>{target_uid}</code>."
         )
 
     await admin_user_detail_handler(update, context, target_uid)
@@ -907,6 +927,135 @@ admin_fsub_conv = ConversationHandler(
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 3.1. Admin Set Custom Slots Conversation Flow
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SLOTS_CANCEL_KEYBOARD = ReplyKeyboardMarkup([[KeyboardButton("❌ Cancel")]], resize_keyboard=True)
+
+async def admin_slots_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        await _send_admin_msg(update, "⛔ <b>Access Denied:</b> You are not authorized.")
+        return ConversationHandler.END
+
+    text = update.message.text.strip() if (update.message and update.message.text) else ""
+    m = re.search(r"\[UID:\s*(\d+)\]", text)
+    if not m:
+        await admin_users_list_handler(update, context, 0)
+        return ConversationHandler.END
+
+    target_uid = int(m.group(1))
+    context.user_data['active_flow'] = 'set_slots'
+    context.user_data['target_slot_uid'] = target_uid
+
+    target_user = database.get_or_create_user(target_uid)
+    curr_slots = target_user.get('max_slots', 3)
+
+    msg_text = (
+        "<b>✏️ SET CUSTOM BOT SLOTS</b>\n"
+        f"<i>Adjust Slot Allocation for UID {target_uid}</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "<blockquote>"
+        f"👤 <b>Target User ID:</b> <code>{target_uid}</code>\n"
+        f"📦 <b>Current Slots:</b> <code>{curr_slots}</code>\n\n"
+        "Please send the new slot allocation number (<b>1 to 100</b>):"
+        "</blockquote>\n\n"
+        "<i>(Enter an integer from 1 to 100, or tap ❌ Cancel below to abort)</i>"
+    )
+    await _send_admin_msg(update, msg_text, reply_markup=SLOTS_CANCEL_KEYBOARD)
+    return A_SET_SLOTS_NUM
+
+async def admin_slots_get_num(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip() if (update.message and update.message.text) else ""
+    target_uid = context.user_data.get('target_slot_uid')
+
+    if is_cancellation_text(text):
+        context.user_data.pop('target_slot_uid', None)
+        context.user_data.pop('active_flow', None)
+        if target_uid:
+            await admin_user_detail_handler(update, context, target_uid)
+        else:
+            if not await handle_admin_text(update, context):
+                await admin_panel(update, context)
+        return ConversationHandler.END
+
+    if context.user_data.get('active_flow') != 'set_slots' or not target_uid:
+        await update.message.reply_text("⚠️ <i>This session expired. Please use /admin to start again.</i>", parse_mode="HTML")
+        return ConversationHandler.END
+
+    if not text.isdigit():
+        err_msg = (
+            "<b>⚠️ INVALID INPUT FORMAT</b>\n"
+            "<i>Integer Required</i>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "<blockquote>"
+            "Please provide a valid integer number between <b>1</b> and <b>100</b>."
+            "</blockquote>\n\n"
+            "<i>(Enter a number between 1-100 or tap ❌ Cancel to abort)</i>"
+        )
+        await update.message.reply_text(err_msg, reply_markup=SLOTS_CANCEL_KEYBOARD, parse_mode="HTML")
+        return A_SET_SLOTS_NUM
+
+    slots = int(text)
+    if slots < 1 or slots > 100:
+        err_msg = (
+            "<b>⚠️ OUT OF PERMITTED RANGE</b>\n"
+            "<i>Slot Limit Bounds</i>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "<blockquote>"
+            "Custom slot limit must be between <b>1</b> and <b>100</b>."
+            "</blockquote>\n\n"
+            "<i>(Enter a number between 1-100 or tap ❌ Cancel to abort)</i>"
+        )
+        await update.message.reply_text(err_msg, reply_markup=SLOTS_CANCEL_KEYBOARD, parse_mode="HTML")
+        return A_SET_SLOTS_NUM
+
+    database.set_user_slots(target_uid, slots)
+    context.user_data.pop('target_slot_uid', None)
+    context.user_data.pop('active_flow', None)
+
+    await _send_admin_msg(
+        update,
+        f"✅ <b>SLOTS UPDATED</b>\nHosting capacity set to <code>{slots}</code> bots for User <code>{target_uid}</code>."
+    )
+    await admin_user_detail_handler(update, context, target_uid)
+    return ConversationHandler.END
+
+async def admin_slots_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    target_uid = context.user_data.pop('target_slot_uid', None)
+    context.user_data.pop('active_flow', None)
+
+    await _send_admin_msg(
+        update,
+        "<b>❌ SET SLOTS CANCELLED</b>\n"
+        "<i>Operation Aborted</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "Custom slot configuration was cancelled."
+    )
+    if target_uid:
+        await admin_user_detail_handler(update, context, target_uid)
+    else:
+        await admin_users_list_handler(update, context, 0)
+    return ConversationHandler.END
+
+admin_slots_conv = ConversationHandler(
+    entry_points=[
+        MessageHandler(filters.Regex(r"^✏️ Set Custom Slots\s+\[UID:\s*(\d+)\]$"), admin_slots_start)
+    ],
+    states={
+        A_SET_SLOTS_NUM: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~admin_cancel_filter, admin_slots_get_num)]
+    },
+    fallbacks=[
+        CommandHandler("cancel", admin_slots_cancel),
+        MessageHandler(filters.Regex(r"(?i)^(❌\s*Cancel|/cancel|cancel|🔙\s*Back to Admin|🏠\s*Back to Admin|🏠\s*Exit Admin|🔙\s*Back to Users)$"), admin_slots_cancel),
+        CallbackQueryHandler(admin_slots_cancel, pattern="^(admin_slots_cancel|admin_panel)$")
+    ],
+    conversation_timeout=600,
+    per_message=False
+)
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 4. Central Dispatchers / Legacy Compatibility
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -957,6 +1106,14 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     elif re.match(r"^(?:🔓 Unban User|🚫 Ban User)\s+\[UID:\s*(\d+)\]$", text):
         m = re.match(r"^(?:🔓 Unban User|🚫 Ban User)\s+\[UID:\s*(\d+)\]$", text)
         await admin_user_action_handler(update, context, action="toggle_ban", target_uid=int(m.group(1)))
+        return True
+    elif re.match(r"^➕ \+1 Slot\s+\[UID:\s*(\d+)\]$", text):
+        m = re.match(r"^➕ \+1 Slot\s+\[UID:\s*(\d+)\]$", text)
+        await admin_user_action_handler(update, context, action="inc_slots", target_uid=int(m.group(1)))
+        return True
+    elif re.match(r"^➖ -1 Slot\s+\[UID:\s*(\d+)\]$", text):
+        m = re.match(r"^➖ -1 Slot\s+\[UID:\s*(\d+)\]$", text)
+        await admin_user_action_handler(update, context, action="dec_slots", target_uid=int(m.group(1)))
         return True
     elif re.match(r"^➕ Add \+2 Slots\s+\[UID:\s*(\d+)\]$", text):
         m = re.match(r"^➕ Add \+2 Slots\s+\[UID:\s*(\d+)\]$", text)
@@ -1053,6 +1210,9 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
     elif data.startswith("admin_inc_slot_"):
         target_uid = int(data.split("_")[3])
         await admin_user_action_handler(update, context, action="inc_slots", target_uid=target_uid)
+    elif data.startswith("admin_dec_slot_"):
+        target_uid = int(data.split("_")[3])
+        await admin_user_action_handler(update, context, action="dec_slots", target_uid=target_uid)
     elif data.startswith("admin_bots_"):
         page = int(data.split("_")[2])
         await admin_bots_list_handler(update, context, page=page)
