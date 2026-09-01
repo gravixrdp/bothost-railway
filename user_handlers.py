@@ -551,6 +551,10 @@ async def show_bot_details(update: Update, context: ContextTypes.DEFAULT_TYPE, b
         await send_clean_screen(update, context, msg, reply_markup=get_my_bots_reply_keyboard(database.get_user_bots(user_id)))
         return
 
+    if user_id == ADMIN_ID and (context.user_data.get('admin_bots_page') is not None or bot_data['user_id'] != user_id):
+        from admin_handlers import admin_bot_detail_handler
+        return await admin_bot_detail_handler(update, context, bot_id=bot_id)
+
     status = bot_data['status']
     status_badge = get_status_badge(status)
     created_str = (bot_data.get('created_at') or "N/A")[:19].replace('T', ' ')

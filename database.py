@@ -181,7 +181,8 @@ def get_or_create_user(user_id: int, username: str = "", first_name: str = "") -
             if first_name and current_first_name != first_name:
                 updates.append("first_name = ?")
                 params.append(str(first_name))
-            if user.get('is_blocked') == 1:
+            u_dict = dict(user)
+            if u_dict.get('is_blocked') == 1:
                 updates.append("is_blocked = 0")
                 
             if updates:
