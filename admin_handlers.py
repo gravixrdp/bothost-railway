@@ -61,6 +61,26 @@ def get_user_display_name(u: dict) -> str:
     else:
         return f"User {u['user_id']}"
 
+async def resolve_user_profile(bot, u: dict) -> dict:
+    uid = u.get('user_id')
+    if not uid:
+        return u
+    if u.get('first_name') and u.get('username'):
+        return u
+    try:
+        chat = await bot.get_chat(chat_id=uid)
+        first_name = (chat.first_name or '').strip()
+        last_name = (chat.last_name or '').strip()
+        full_name = f"{first_name} {last_name}".strip() or first_name
+        username = (chat.username or '').strip().lstrip('@')
+        if full_name or username:
+            updated = database.get_or_create_user(uid, username=username, first_name=full_name)
+            u['first_name'] = updated.get('first_name') or full_name
+            u['username'] = updated.get('username') or username
+    except Exception as e:
+        logger.debug(f"Could not resolve Telegram chat for UID {uid}: {e}")
+    return u
+
 def get_admin_reply_keyboard(maint_status: str) -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton("📊 System Stats"), KeyboardButton("👥 User Manager")],
@@ -254,6 +274,11 @@ async def admin_users_list_handler(update: Update, context: ContextTypes.DEFAULT
     context.user_data['admin_users_page'] = curr_page
     curr_users = users[curr_page * per_page : (curr_page + 1) * per_page]
 
+    # Resolve any missing user profile info from Telegram API
+    for u in curr_users:
+        if not u.get('first_name') or not u.get('username'):
+            await resolve_user_profile(context.bot, u)
+
     text = (
         f"<b>👥 USER DIRECTORY</b> (Page {curr_page + 1}/{total_pages})\n"
         "<i>Platform User Database & Privilege Controls</i>\n"
@@ -296,6 +321,9 @@ async def admin_user_detail_handler(update: Update, context: ContextTypes.DEFAUL
         return
 
     target_user = database.get_or_create_user(user_id)
+    if not target_user.get('first_name') or not target_user.get('username'):
+        target_user = await resolve_user_profile(context.bot, dict(target_user))
+
     user_bots = database.get_user_bots(user_id)
     running_count = sum(1 for b in user_bots if b.get('status') == 'RUNNING')
 
