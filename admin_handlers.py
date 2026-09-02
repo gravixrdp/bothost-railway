@@ -515,9 +515,13 @@ async def admin_bots_list_handler(update: Update, context: ContextTypes.DEFAULT_
             b_name = html.escape(b.get('bot_name', 'Bot'))
             b_id = html.escape(str(b.get('bot_id', '')))
             u_id = b.get('user_id')
+            u_data = database.get_user(u_id) if u_id else None
+            u_display = database.get_user_display_name(u_data, fallback_uid=u_id)
+            b_uname = (b.get('bot_username') or '').strip().lstrip('@')
+            uname_str = f" (@{b_uname})" if b_uname else ""
             entries.append(
-                f"{idx}. {status_emoji} <b>{b_name}</b> [<code>#{b_id}</code>]\n"
-                f"   └ 👤 Owner: <code>{u_id}</code> | ⚡ Status: <code>{st}</code>"
+                f"{idx}. {status_emoji} <b>{b_name}</b>{uname_str} [<code>#{b_id}</code>]\n"
+                f"   └ 👤 Owner: {u_display} | ⚡ Status: <code>{st}</code>"
             )
         text += "\n\n".join(entries) + "</blockquote>\n"
 
@@ -557,12 +561,30 @@ async def admin_bot_detail_handler(update: Update, context: ContextTypes.DEFAULT
     cpu_percent = metrics.get('cpu_percent', 0.0)
     ram_mb = metrics.get('ram_mb', 0.0)
 
+    u_id = bot_data.get('user_id')
+    u_data = database.get_user(u_id) if u_id else None
+    u_display = database.get_user_display_name(u_data, fallback_uid=u_id)
+
+    b_uname = (bot_data.get('bot_username') or '').strip().lstrip('@')
+    if not b_uname and token:
+        try:
+            from user_handlers import verify_telegram_token
+            is_valid, fetched_uname, _ = await verify_telegram_token(token)
+            if is_valid and fetched_uname and fetched_uname not in ["Bot", "UnnamedBot"]:
+                b_uname = fetched_uname
+                database.update_bot_username(bot_id, fetched_uname)
+        except Exception:
+            pass
+
+    uname_line = f"🔗 <b>Username:</b> @{b_uname} (<a href=\"https://t.me/{b_uname}\">Open Bot</a>)\n" if b_uname else ""
+
     text = (
         f"<b>🤖 BOT DETAIL [<code>#{html.escape(bot_id)}</code>]</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "<blockquote>"
         f"🤖 <b>Name:</b> <b>{html.escape(bot_data.get('bot_name', 'Unnamed Bot'))}</b>\n"
-        f"👤 <b>Owner:</b> <code>{bot_data['user_id']}</code>\n"
+        f"{uname_line}"
+        f"👤 <b>Owner:</b> {u_display} [<code>{u_id}</code>]\n"
         f"⚡ <b>Status:</b> {status_emoji} <code>{status}</code>\n"
         f"⚡ <b>RAM:</b> <code>{ram_mb} MB</code> | <b>CPU:</b> <code>{cpu_percent}%</code>\n"
         f"🔄 <b>Auto-Restart:</b> <code>{auto_restart}</code>\n"

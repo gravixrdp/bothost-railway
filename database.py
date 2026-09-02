@@ -51,6 +51,7 @@ def init_db():
             bot_id TEXT PRIMARY KEY,
             user_id INTEGER,
             bot_name TEXT,
+            bot_username TEXT,
             bot_token TEXT,
             script_path TEXT,
             status TEXT DEFAULT 'STOPPED',
@@ -138,6 +139,12 @@ def init_db():
             VALUES (?, ?, ?, ?)
             """, ('https://t.me/+lD-MufapiQVhMGFl', 'Gravix Updates', 'https://t.me/+lD-MufapiQVhMGFl', now_ts))
         
+        # Migrate hosted_bots to ensure bot_username column exists
+        try:
+            cursor.execute("ALTER TABLE hosted_bots ADD COLUMN bot_username TEXT")
+        except Exception:
+            pass
+
         # Set default maintenance mode if not exists
         cursor.execute("INSERT OR IGNORE INTO system_settings (key, value) VALUES ('maintenance_mode', '0')")
         
@@ -214,6 +221,23 @@ def get_user(user_id: int) -> Optional[Dict[str, Any]]:
         return dict(row) if row else None
     finally:
         conn.close()
+
+def get_user_display_name(u: Optional[Dict[str, Any]], fallback_uid: Any = None) -> str:
+    """Returns formatted user name e.g. First Name (@username) [UID]."""
+    if not u:
+        return f"User <code>{fallback_uid}</code>" if fallback_uid else "Unknown User"
+    first = (u.get('first_name') or '').strip()
+    uname = (u.get('username') or '').strip().lstrip('@')
+    uid = u.get('user_id') or fallback_uid
+    if first and uname:
+        return f"<b>{first}</b> (@{uname})"
+    elif first:
+        return f"<b>{first}</b>"
+    elif uname:
+        return f"@{uname}"
+    elif uid:
+        return f"User <code>{uid}</code>"
+    return "User"
 
 def get_all_users() -> List[Dict[str, Any]]:
     conn = get_connection()
@@ -306,17 +330,31 @@ def delete_user(user_id: int):
 # Hosted Bot Operations
 # ==========================================
 
-def create_hosted_bot(bot_id: str, user_id: int, bot_name: str, bot_token: str, script_path: str):
+def create_hosted_bot(bot_id: str, user_id: int, bot_name: str, bot_token: str, script_path: str, bot_username: str = None):
     bid = str(bot_id).strip()
     uid = int(user_id)
+    uname = str(bot_username or '').strip().lstrip('@')
     conn = get_connection()
     try:
         cursor = conn.cursor()
         created_at = datetime.utcnow().isoformat()
         cursor.execute("""
-        INSERT INTO hosted_bots (bot_id, user_id, bot_name, bot_token, script_path, status, auto_restart, created_at, last_started)
-        VALUES (?, ?, ?, ?, ?, 'STOPPED', 1, ?, NULL)
-        """, (bid, uid, str(bot_name), str(bot_token), str(script_path), created_at))
+        INSERT INTO hosted_bots (bot_id, user_id, bot_name, bot_username, bot_token, script_path, status, auto_restart, created_at, last_started)
+        VALUES (?, ?, ?, ?, ?, ?, 'STOPPED', 1, ?, NULL)
+        """, (bid, uid, str(bot_name), uname or None, str(bot_token), str(script_path), created_at))
+        conn.commit()
+    finally:
+        conn.close()
+
+def update_bot_username(bot_id: str, bot_username: str):
+    bid = str(bot_id).strip()
+    uname = str(bot_username or '').strip().lstrip('@')
+    if not uname:
+        return
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE hosted_bots SET bot_username = ? WHERE bot_id = ?", (uname, bid))
         conn.commit()
     finally:
         conn.close()

@@ -175,6 +175,24 @@ async def verify_telegram_token(token: str) -> tuple[bool, str, str]:
         logger.warning(f"Could not reach Telegram API for token validation: {e}")
         return True, "Bot", ""
 
+async def get_or_fetch_bot_username(bot_data: dict) -> str:
+    """Returns stored bot_username or fetches it from Telegram @getMe and saves it."""
+    if not bot_data:
+        return ""
+    uname = (bot_data.get('bot_username') or '').strip().lstrip('@')
+    if uname:
+        return f"@{uname}"
+    token = (bot_data.get('bot_token') or '').strip()
+    if token:
+        try:
+            is_valid, fetched_uname, _ = await verify_telegram_token(token)
+            if is_valid and fetched_uname and fetched_uname not in ["Bot", "UnnamedBot"]:
+                database.update_bot_username(bot_data['bot_id'], fetched_uname)
+                return f"@{fetched_uname}"
+        except Exception:
+            pass
+    return ""
+
 async def check_user_subscription(bot, user_id: int) -> tuple[bool, list]:
     channels = []
     if hasattr(database, "get_required_channels"):
@@ -524,7 +542,9 @@ async def show_my_bots(update: Update, context: ContextTypes.DEFAULT_TYPE, page:
         b_name = html.escape(b.get('bot_name', 'Unnamed Bot'))
         b_id = html.escape(str(b.get('bot_id', '')))
         raw_status = html.escape(str(b.get('status', 'STOPPED')))
-        bot_lines.append(f"• {status_badge} <b>{b_name}</b> (<code>#{b_id}</code>)\n  └ <i>Status:</i> <code>{raw_status}</code>")
+        b_uname = (b.get('bot_username') or '').strip().lstrip('@')
+        uname_str = f" (@{b_uname})" if b_uname else ""
+        bot_lines.append(f"• {status_badge} <b>{b_name}</b>{uname_str} (<code>#{b_id}</code>)\n  └ <i>Status:</i> <code>{raw_status}</code>")
 
     bots_block = "\n".join(bot_lines)
     text = (
@@ -612,11 +632,15 @@ async def show_bot_details(update: Update, context: ContextTypes.DEFAULT_TYPE, b
     auto_restart_str = "Enabled (Watchdog Active)" if bot_data.get('auto_restart') else "Disabled"
     header = make_header_card("BOT INSPECTOR", "Instance Diagnostics & Control")
     safe_bot_name = html.escape(bot_data.get('bot_name', 'Unnamed Bot'))
+    
+    bot_uname = await get_or_fetch_bot_username(bot_data)
+    uname_line = f"• <b>Username:</b> {bot_uname} (<a href=\"https://t.me/{bot_uname.lstrip('@')}\">Open Bot</a>)\n" if bot_uname else ""
 
     text = (
         f"{header}\n\n"
         "<b>🤖 Instance Overview:</b>\n"
         f"<blockquote>• <b>Name:</b> <b>{safe_bot_name}</b>\n"
+        f"{uname_line}"
         f"• <b>𝗕𝗼𝘁 𝗜𝗗:</b> <code>#{html.escape(bot_id)}</code>\n"
         f"• <b>𝗦𝘁𝗮𝘁𝘂𝘀:</b> {status_badge}\n"
         f"• <b>PID:</b> <code>{html.escape(pid_str)}</code>\n"
@@ -1235,7 +1259,7 @@ async def template_token_received(update: Update, context: ContextTypes.DEFAULT_
     with open(script_path, "w", encoding="utf-8") as f:
         f.write(tinfo['code'])
 
-    database.create_hosted_bot(bot_id, user_id, bot_name, token, script_path)
+    database.create_hosted_bot(bot_id, user_id, bot_name, token, script_path, bot_username=bot_uname)
     await send_clean_screen(update, context, "⚙️ <i>Provisioning Gravix dedicated cloud instance and launching template...</i>")
 
     success, msg = await bot_manager.start_bot(bot_id)
@@ -1813,7 +1837,8 @@ async def host_bot_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with open(script_path, "w", encoding="utf-8") as f:
             f.write(code_content)
 
-    database.create_hosted_bot(bot_id, user_id, bot_name, token, script_path)
+    stored_bot_uname = context.user_data.get('bot_uname') or None
+    database.create_hosted_bot(bot_id, user_id, bot_name, token, script_path, bot_username=stored_bot_uname)
 
     await send_clean_screen(update, context, "⚙️ <i>Provisioning Gravix dedicated cloud environment and starting bot...</i>")
     success, msg = await bot_manager.start_bot(bot_id)

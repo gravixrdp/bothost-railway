@@ -151,13 +151,18 @@ async def run_ai_diagnostics(bot_id: str, caller_user_id: int, is_admin_caller: 
             ai_reply = ai_reply.replace("```python", "").replace("```html", "").replace("```", "")
 
             badge = "🟢 ACTIVE & HEALTHY" if status == "RUNNING" else "⚠️ DIAGNOSTIC REPORT"
+            u_data = database.get_user(owner_id) if owner_id else None
+            u_display = database.get_user_display_name(u_data, fallback_uid=owner_id)
+            b_uname = (bot_data.get('bot_username') or '').strip().lstrip('@')
+            bot_uname_str = f" (@{b_uname})" if b_uname else ""
+
             header = (
                 f"<b>🤖 GRAVIX AI BOT DIAGNOSTICS</b>\n"
                 f"<i>Powered by Gravix Neural Diagnostics Core</i>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"🤖 <b>Bot:</b> <b>{html.escape(bot_name)}</b> (<code>#{html.escape(bot_id)}</code>)\n"
+                f"🤖 <b>Bot:</b> <b>{html.escape(bot_name)}</b>{bot_uname_str} (<code>#{html.escape(bot_id)}</code>)\n"
                 f"⚡ <b>Status:</b> <code>{status}</code> ({badge})\n"
-                f"👤 <b>Owner:</b> <code>{owner_id}</code>\n"
+                f"👤 <b>Owner:</b> {u_display} [<code>{owner_id}</code>]\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
             )
             return header + ai_reply
