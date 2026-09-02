@@ -709,3 +709,29 @@ def delete_chat_message_records(user_id: int, message_ids: list[int]):
         logger.warning(f"Failed to delete chat message records for user {user_id}: {e}")
     finally:
         conn.close()
+
+def get_all_chat_messages(user_id: int) -> list[int]:
+    """Returns all recorded message IDs for a user to perform complete chat cleanup."""
+    if not user_id:
+        return []
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT message_id FROM chat_history WHERE user_id = ? ORDER BY rowid DESC", (int(user_id),))
+        return [int(r['message_id']) for r in cursor.fetchall()]
+    finally:
+        conn.close()
+
+def delete_all_chat_messages(user_id: int):
+    """Deletes all recorded message history for a user."""
+    if not user_id:
+        return
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM chat_history WHERE user_id = ?", (int(user_id),))
+        conn.commit()
+    except Exception as e:
+        logger.warning(f"Failed to clear all chat message records for user {user_id}: {e}")
+    finally:
+        conn.close()

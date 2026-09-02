@@ -143,7 +143,8 @@ def get_admin_reply_keyboard(maint_status: str) -> ReplyKeyboardMarkup:
         [KeyboardButton("⇋ 𝗔𝗹𝗹 𝗛𝗼𝘀𝘁𝗲𝗱 𝗕𝗼𝘁𝘀 ⇋"), KeyboardButton("⇋ 𝗙𝗼𝗿𝗰𝗲-𝗦𝘂𝗯 𝗖𝗵𝗮𝗻𝗻𝗲𝗹𝘀 ⇋")],
         [KeyboardButton("⇋ 𝗕𝗿𝗼𝗮𝗱𝗰𝗮𝘀𝘁 ⇋"), KeyboardButton("⇋ 𝗖𝗵𝗲𝗰𝗸 𝗕𝗹𝗼𝗰𝗸𝗲𝗱 𝗨𝘀𝗲𝗿𝘀 ⇋")],
         [KeyboardButton(f"⇋ 𝗧𝗼𝗴𝗴𝗹𝗲 𝗠𝗮𝗶𝗻𝘁𝗲𝗻𝗮𝗻𝗰𝗲 ({clean_status}) ⇋")],
-        [KeyboardButton("⇋ 𝗥𝗲𝗳𝗿𝗲𝘀𝗵 𝗔𝗱𝗺𝗶𝗻 ⇋"), KeyboardButton("⇋ 𝗘𝘅𝗶𝘁 𝗔𝗱𝗺𝗶𝗻 ⇋")]
+        [KeyboardButton("⇋ 𝗥𝗲𝗳𝗿𝗲𝘀𝗵 𝗔𝗱𝗺𝗶𝗻 ⇋"), KeyboardButton("⇋ 🧹 𝗖𝗹𝗲𝗮𝗿 𝗖𝗵𝗮𝘁 ⇋")],
+        [KeyboardButton("⇋ 𝗘𝘅𝗶𝘁 𝗔𝗱𝗺𝗶𝗻 ⇋")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -205,6 +206,7 @@ def get_admin_bots_reply_keyboard(bots: list, page: int = 0) -> ReplyKeyboardMar
         keyboard.append(nav_row)
 
     keyboard.append([KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻 ⇋")])
+    keyboard.append([KeyboardButton("⇋ 🧹 𝗖𝗹𝗲𝗮𝗿 𝗖𝗵𝗮𝘁 ⇋")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_admin_bot_detail_keyboard(bot_id: str, status: str) -> ReplyKeyboardMarkup:
@@ -212,9 +214,10 @@ def get_admin_bot_detail_keyboard(bot_id: str, status: str) -> ReplyKeyboardMark
     keyboard = [
         [KeyboardButton(f"⇋ {state_label} [#{bot_id}] ⇋"), KeyboardButton(f"⇋ 𝗥𝗲𝘀𝘁𝗮𝗿𝘁 [#{bot_id}] ⇋")],
         [KeyboardButton(f"⇋ 𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀 [#{bot_id}] ⇋"), KeyboardButton(f"⇋ 𝗚𝗲𝘁 𝗕𝗼𝘁 𝗖𝗼𝗱𝗲 [#{bot_id}] ⇋")],
-        [KeyboardButton(f"⇋ 🤖 𝗔𝗜 𝗗𝗶𝗮𝗴𝗻𝗼𝘀𝗲 & 𝗙𝗶𝘅 [#{bot_id}] ⇋")],
+        [KeyboardButton(f"⇋ ⚡ 𝗚𝗿𝗮𝘃𝗶𝘅 𝗔𝗜 𝗜𝗻𝘀𝗽𝗲𝗰𝘁 [#{bot_id}] ⇋")],
         [KeyboardButton(f"⇋ 𝗙𝗼𝗿𝗰𝗲 𝗗𝗲𝗹𝗲𝘁𝗲 [#{bot_id}] ⇋")],
-        [KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗹𝗹 𝗕𝗼𝘁𝘀 ⇋"), KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻 ⇋")]
+        [KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗹𝗹 𝗕𝗼𝘁𝘀 ⇋"), KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻 ⇋")],
+        [KeyboardButton("⇋ 🧹 𝗖𝗹𝗲𝗮𝗿 𝗖𝗵𝗮𝘁 ⇋")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -613,20 +616,21 @@ async def admin_bot_action_handler(update: Update, context: ContextTypes.DEFAULT
         return
 
     if action is None:
-        if "Force Start" in text_input or "▶️" in text_input:
+        c_low = text_input.lower()
+        if "force start" in c_low or "start" in c_low or "▶️" in text_input:
             action = "start"
-        elif "Stop" in text_input or "⏹️" in text_input:
-            action = "stop"
-        elif "Restart" in text_input or "🔄" in text_input:
-            action = "restart"
-        elif "View Logs" in text_input or "📜" in text_input:
-            action = "logs"
-        elif "Get Bot Code" in text_input or "Download Code" in text_input or "View Code" in text_input or "Get Code" in text_input or "Export Code" in text_input or "Code" in text_input:
-            action = "code"
-        elif "AI Diagnose" in text_input or "Diagnose" in text_input or "AI Fix" in text_input or "diagnose" in text_input.lower():
-            action = "ai_diagnose"
-        elif "Force Delete" in text_input or "🗑️" in text_input:
+        elif "force delete" in c_low or "delete" in c_low or "del" in c_low or "🗑️" in text_input:
             action = "del"
+        elif "stop" in c_low or "⏹️" in text_input:
+            action = "stop"
+        elif "restart" in c_low or "🔄" in text_input:
+            action = "restart"
+        elif "view logs" in c_low or "logs" in c_low or "📜" in text_input:
+            action = "logs"
+        elif "code" in c_low or "📁" in text_input or "download" in c_low:
+            action = "code"
+        elif "inspect" in c_low or "audit" in c_low or "diagnose" in c_low or "ai" in c_low or "🤖" in text_input or "⚡" in text_input:
+            action = "ai_diagnose"
 
     if action == "start":
         success, msg = await bot_manager.start_bot(bot_id)
@@ -666,7 +670,7 @@ async def admin_bot_action_handler(update: Update, context: ContextTypes.DEFAULT
         text = (
             f"{header}\n\n"
             f"🤖 <b>Target Bot:</b> <code>#{html.escape(bot_id)}</code>\n\n"
-            f"<pre><code>{html.escape(log_snippet)}</code></pre>\n\n"
+            f"<pre><code class=\"language-log\">{html.escape(log_snippet)}</code></pre>\n\n"
             "💡 <i>Displaying the most recent 30 log lines.</i>"
         )
         reply_markup = get_admin_bot_detail_keyboard(bot_id, bot_data.get('status', 'STOPPED') if bot_data else 'STOPPED')
@@ -700,11 +704,17 @@ async def admin_bot_action_handler(update: Update, context: ContextTypes.DEFAULT
             script_dir = os.path.dirname(bot_data['script_path'])
             if os.path.exists(script_dir):
                 shutil.rmtree(script_dir, ignore_errors=True)
+        log_file = bot_manager.get_log_file_path(bot_id)
+        if os.path.exists(log_file):
+            try:
+                os.remove(log_file)
+            except Exception:
+                pass
         database.delete_bot_record(bot_id)
         header = make_header_card("𝗕𝗢𝗧 𝗣𝗘𝗥𝗠𝗔𝗡𝗘𝗡𝗧𝗟𝗬 𝗗𝗘𝗟𝗘𝗧𝗘𝗗", f"Purged Instance #{html.escape(bot_id)}")
         await _send_admin_msg(
             update,
-            f"{header}\n\nBot instance <code>#{html.escape(bot_id)}</code> and disk assets have been purged.",
+            f"{header}\n\n<blockquote>✅ Bot instance <code>#{html.escape(bot_id)}</code> and all associated files/logs have been purged from the cluster.</blockquote>",
             context=context
         )
         await admin_bots_list_handler(update, context, 0)

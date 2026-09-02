@@ -328,7 +328,7 @@ def get_main_reply_keyboard(user_id: int) -> ReplyKeyboardMarkup:
         [KeyboardButton("⇋ 𝗤𝘂𝗶𝗰𝗸 𝗧𝗲𝗺𝗽𝗹𝗮𝘁𝗲𝘀 ⇋"), KeyboardButton("⇋ 𝗠𝘆 𝗔𝗰𝗰𝗼𝘂𝗻𝘁 & 𝗦𝗹𝗼𝘁𝘀 ⇋")],
         [KeyboardButton("⇋ 𝗥𝗲𝗳𝗲𝗿 & 𝗘𝗮𝗿𝗻 𝗦𝗹𝗼𝘁𝘀 ⇋"), KeyboardButton("⇋ 𝗖𝗵𝗮𝗻𝗻𝗲𝗹 𝗣𝗿𝗼𝗺𝗼𝘁𝗶𝗼𝗻 ⇋")],
         [KeyboardButton("⇋ 𝗖𝘂𝘀𝘁𝗼𝗺𝗲𝗿 𝗦𝘂𝗽𝗽𝗼𝗿𝘁 ⇋"), KeyboardButton("⇋ 𝗛𝗲𝗹𝗽 & 𝗚𝘂𝗶𝗱𝗲𝗹𝗶𝗻𝗲𝘀 ⇋")],
-        [KeyboardButton("⇋ 𝗥𝗲𝗳𝗿𝗲𝘀𝗵 ⇋")]
+        [KeyboardButton("⇋ 𝗥𝗲𝗳𝗿𝗲𝘀𝗵 ⇋"), KeyboardButton("⇋ 🧹 𝗖𝗹𝗲𝗮𝗿 𝗖𝗵𝗮𝘁 ⇋")]
     ])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -355,6 +355,7 @@ def get_my_bots_reply_keyboard(user_bots: list, page: int = 0) -> ReplyKeyboardM
             keyboard.append(nav_row)
 
     keyboard.append([KeyboardButton("⇋ 𝗛𝗼𝘀𝘁 𝗔𝗻𝗼𝘁𝗵𝗲𝗿 𝗕𝗼𝘁 ⇋"), KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂 ⇋")])
+    keyboard.append([KeyboardButton("⇋ 🧹 𝗖𝗹𝗲𝗮𝗿 𝗖𝗵𝗮𝘁 ⇋")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_bot_detail_reply_keyboard(bot_id: str, status: str) -> ReplyKeyboardMarkup:
@@ -377,11 +378,14 @@ def get_bot_detail_reply_keyboard(bot_id: str, status: str) -> ReplyKeyboardMark
         KeyboardButton(f"⇋ 𝗘𝘅𝗽𝗼𝗿𝘁 𝗕𝗮𝗰𝗸𝘂𝗽 [#{bot_id}] ⇋")
     ])
     keyboard.append([
-        KeyboardButton(f"⇋ 🤖 𝗔𝗜 𝗗𝗶𝗮𝗴𝗻𝗼𝘀𝗲 & 𝗙𝗶𝘅 [#{bot_id}] ⇋")
+        KeyboardButton(f"⇋ ⚡ 𝗚𝗿𝗮𝘃𝗶𝘅 𝗔𝗜 𝗜𝗻𝘀𝗽𝗲𝗰𝘁 [#{bot_id}] ⇋")
     ])
     keyboard.append([
         KeyboardButton("⇋ 𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝘆 𝗕𝗼𝘁𝘀 ⇋"),
         KeyboardButton("⇋ 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂 ⇋")
+    ])
+    keyboard.append([
+        KeyboardButton("⇋ 🧹 𝗖𝗹𝗲𝗮𝗿 𝗖𝗵𝗮𝘁 ⇋")
     ])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -433,6 +437,31 @@ def get_token_input_keyboard() -> ReplyKeyboardMarkup:
 # ---------------------------------------------------------
 # Screen Handlers
 # ---------------------------------------------------------
+
+async def clear_chat_history_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Purges all recorded previous messages in the chat and presents a clean start menu."""
+    chat_id = update.effective_chat.id if update.effective_chat else (update.effective_user.id if update.effective_user else None)
+    if not chat_id:
+        return
+
+    # Delete the triggering message immediately
+    if update.effective_message:
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=update.effective_message.message_id)
+        except Exception:
+            pass
+
+    # Retrieve and delete all stored chat message IDs
+    all_mids = database.get_all_chat_messages(chat_id)
+    for mid in all_mids:
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=mid)
+        except Exception:
+            pass
+    database.delete_all_chat_messages(chat_id)
+
+    # Re-launch clean start menu
+    await start_command(update, context)
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -684,11 +713,11 @@ async def handle_bot_action(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     if action is None:
         c_low = clean_input.lower()
-        if "start bot" in c_low or ("start" in c_low and "bot" in c_low):
+        if "force start" in c_low or "start bot" in c_low or ("start" in c_low and "bot" in c_low):
             action = "start"
-        elif "stop bot" in c_low or ("stop" in c_low and "bot" in c_low):
+        elif "stop bot" in c_low or "stop" in c_low:
             action = "stop"
-        elif "restart bot" in c_low or ("restart" in c_low and "bot" in c_low):
+        elif "restart bot" in c_low or "restart" in c_low:
             action = "restart"
         elif "view logs" in c_low or "logs" in c_low:
             action = "logs"
@@ -696,7 +725,9 @@ async def handle_bot_action(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             action = "delete_execute"
         elif "cancel delete" in c_low:
             action = "cancel_delete"
-        elif "delete bot" in c_low:
+        elif "force delete" in c_low:
+            action = "del" if (user_id == ADMIN_ID) else "delete_confirm"
+        elif "delete bot" in c_low or "delete" in c_low:
             action = "delete_confirm"
         elif "manage env vars" in c_low or "env vars" in c_low:
             action = "env"
@@ -704,7 +735,7 @@ async def handle_bot_action(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             action = "backup"
         elif "get bot code" in c_low or "bot code" in c_low or "get code" in c_low or "code" in c_low or "download code" in c_low:
             action = "code"
-        elif "ai diagnose" in c_low or "diagnose" in c_low or "ai fix" in c_low:
+        elif "inspect" in c_low or "audit" in c_low or "ai diagnose" in c_low or "diagnose" in c_low or "ai fix" in c_low:
             action = "ai_diagnose"
 
     bot_data = database.get_bot(bot_id)
@@ -715,7 +746,8 @@ async def handle_bot_action(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         await send_clean_screen(update, context, msg, reply_markup=get_main_reply_keyboard(user_id))
         return
 
-    if user_id == ADMIN_ID and (context.user_data.get('admin_bots_page') is not None or bot_data['user_id'] != user_id):
+    is_admin_btn = any(x in clean_input.lower() for x in ["force start", "force delete", "get bot code", "back to all bots", "back to admin"])
+    if user_id == ADMIN_ID and (context.user_data.get('admin_bots_page') is not None or bot_data['user_id'] != user_id or is_admin_btn or action == "del"):
         from admin_handlers import admin_bot_action_handler
         return await admin_bot_action_handler(update, context, action=action, bot_id=bot_id)
 

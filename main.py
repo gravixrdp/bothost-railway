@@ -54,6 +54,7 @@ from admin_handlers import (
 from user_handlers import (
     send_clean_screen,
     start_command,
+    clear_chat_history_handler,
     show_my_bots,
     show_account_info,
     show_referral_hub,
@@ -497,6 +498,11 @@ def main():
     application.add_handler(admin_slots_conv)
 
     # 3. User Navigation & Primary Menus
+    application.add_handler(CommandHandler(["clear", "clearchat", "clean"], clear_chat_history_handler))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:[🧹⇋⇆⇌⇄]\s*)?(?:Clear Chat History|Clear History|Clear Chat|Clean Chat|Clear|𝗖𝗹𝗲𝗮𝗿 𝗖𝗵𝗮𝘁 𝗛𝗶𝘀𝘁𝗼𝗿𝘆|𝗖𝗹𝗲𝗮𝗿 𝗖𝗵𝗮𝘁|𝗖𝗹𝗲𝗮𝗿 𝗛𝗶𝘀𝘁𝗼𝗿𝘆)(?:\s*[🧹⇋⇆⇌⇄])?$"),
+        clear_chat_history_handler
+    ))
     application.add_handler(MessageHandler(
         NormalizedRegex(r"^(?:[🔙🏠🔄⇋⇆⇌⇄]\s*)?(?:Back to Main Menu|Main Menu|Refresh|Start|Menu|𝗕𝗮𝗰𝗸 𝘁𝗼 𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂|𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂|𝗥𝗲𝗳𝗿𝗲𝘀𝗵)(?:\s*[⇋⇆⇌⇄])?$"),
         start_command
@@ -536,7 +542,7 @@ def main():
         user_text_router
     ))
     application.add_handler(MessageHandler(
-        NormalizedRegex(r"^(?:[▶️⏹️🔄📜📁💾📥🗑️🔑🤖🛠️⇋⇆⇌⇄]\s*)?(?:Start Bot|Stop Bot|Restart Bot|View Logs|Delete Bot|Get Bot Code|Download Code|View Code|Get Code|Export Code|AI Diagnose & Fix|AI Diagnose|AI Fix|Diagnose|Manage Env Vars|Env Vars|Start|Stop|Restart|Logs|Code|Delete|𝗦𝘁𝗮𝗿𝘁 𝗕𝗼𝘁|𝗦𝘁𝗼𝗽 𝗕𝗼𝘁|𝗥𝗲𝘀𝘁𝗮𝗿𝘁 𝗕𝗼𝘁|𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀|𝗗𝗲𝗹𝗲𝘁𝗲 𝗕𝗼𝘁|𝗚𝗲𝘁 𝗕𝗼𝘁 𝗖𝗼𝗱𝗲|𝗔𝗜 𝗗𝗶𝗮𝗴𝗻𝗼𝘀𝗲 & 𝗙𝗶𝘅|𝗔𝗜 𝗗𝗶𝗮𝗴𝗻𝗼𝘀𝗲|𝗠𝗮𝗻𝗮𝗴𝗲 𝗘𝗻𝘃 𝗩𝗮𝗿𝘀|𝗘𝗻𝘃 𝗩𝗮𝗿𝘀)\s*(?:[⇋⇆⇌⇄]\s*)?\[#([a-zA-Z0-9_-]+)\](?:\s*[⇋⇆⇌⇄])?$"),
+        NormalizedRegex(r"^(?:[▶️⏹️🔄📜📁💾📥🗑️🔑🤖🛠️⚡🧠⇋⇆⇌⇄]\s*)?(?:Start Bot|Stop Bot|Restart Bot|View Logs|Delete Bot|Get Bot Code|Download Code|View Code|Get Code|Export Code|Gravix AI Inspect|AI Inspect & Fix|AI Inspect|AI Audit|AI Diagnose & Fix|AI Diagnose|AI Fix|Diagnose|Inspect|Audit|Manage Env Vars|Env Vars|Start|Stop|Restart|Logs|Code|Delete|𝗦𝘁𝗮𝗿𝘁 𝗕𝗼𝘁|𝗦𝘁𝗼𝗽 𝗕𝗼𝘁|𝗥𝗲𝘀𝘁𝗮𝗿𝘁 𝗕𝗼𝘁|𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀|𝗗𝗲𝗹𝗲𝘁𝗲 𝗕𝗼𝘁|𝗚𝗲𝘁 𝗕𝗼𝘁 𝗖𝗼𝗱𝗲|𝗚𝗿𝗮𝘃𝗶𝘅 𝗔𝗜 𝗜𝗻𝘀𝗽𝗲𝗰𝘁|𝗔𝗜 𝗗𝗶𝗮𝗴𝗻𝗼𝘀𝗲 & 𝗙𝗶𝘅|𝗔𝗜 𝗗𝗶𝗮𝗴𝗻𝗼𝘀𝗲|𝗠𝗮𝗻𝗮𝗴𝗲 𝗘𝗻𝘃 𝗩𝗮𝗿𝘀|𝗘𝗻𝘃 𝗩𝗮𝗿𝘀)\s*(?:[⇋⇆⇌⇄]\s*)?\[#([a-zA-Z0-9_-]+)\](?:\s*[⇋⇆⇌⇄])?$"),
         handle_bot_action
     ))
     application.add_handler(MessageHandler(
@@ -585,7 +591,7 @@ def main():
         admin_user_detail_handler
     ))
     application.add_handler(MessageHandler(
-        NormalizedRegex(r"^(?:[🔓🚫⇋⇆⇌⇄]\s*)?(?:Unban User|Ban User|Unban|Ban|𝗨𝗻𝗯𝗮𝗻 𝗨𝘀𝗲𝗿|𝗕𝗮𝗻 𝗨𝘀𝗲𝗿)\s*(?:[⇋⇆⇌⇄]\s*)?\[(?:UID|𝗨𝗜𝗗):\s*(\d+)\](?:\s*[⇋⇆⇌⇄])?$"),
+        NormalizedRegex(r"^(?:[🔓🚫⇋⇆⇌⇄]\s*)?(?:Unban User|Ban User|Unban|Ban|𝗨𝗻𝗯𝗮𝗻 𝗨𝘀𝗲𝗿|𝗕𝗮𝗻 𝗨𝘀𝗲𝗿)\s*(?:[⇋⇆⇌⇄])?\[(?:UID|𝗨𝗜𝗗):\s*(\d+)\](?:\s*[⇋⇆⇌⇄])?$"),
         admin_user_action_handler
     ))
     application.add_handler(MessageHandler(
@@ -603,7 +609,7 @@ def main():
         handle_admin_text
     ))
     application.add_handler(MessageHandler(
-        NormalizedRegex(r"^(?:[▶️⏹️🔄📜📁💾📥🗑️🤖🛠️⇋⇆⇌⇄]\s*)?(?:Force Start|Stop|Restart|View Logs|Get Bot Code|Download Code|View Code|Get Code|Export Code|AI Diagnose & Fix|AI Diagnose|AI Fix|Diagnose|Force Delete|Start|Delete|Logs|Code|𝗙𝗼𝗿𝗰𝗲 𝗦𝘁𝗮𝗿𝘁|𝗦𝘁𝗼𝗽|𝗥𝗲𝘀𝘁𝗮𝗿𝘁|𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀|𝗚𝗲𝘁 𝗕𝗼𝘁 𝗖𝗼𝗱𝗲|𝗔𝗜 𝗗𝗶𝗮𝗴𝗻𝗼𝘀𝗲 & 𝗙𝗶𝘅|𝗔𝗜 𝗗𝗶𝗮𝗴𝗻𝗼𝘀𝗲|𝗙𝗼𝗿𝗰𝗲 𝗗𝗲𝗹𝗲𝘁𝗲)\s*(?:[⇋⇆⇌⇄]\s*)?\[#([a-zA-Z0-9_-]+)\](?:\s*[⇋⇆⇌⇄])?$"),
+        NormalizedRegex(r"^(?:[▶️⏹️🔄📜📁💾📥🗑️🤖🛠️⚡🧠⇋⇆⇌⇄]\s*)?(?:Force Start|Stop|Restart|View Logs|Get Bot Code|Download Code|View Code|Get Code|Export Code|Gravix AI Inspect|AI Inspect & Fix|AI Inspect|AI Audit|AI Diagnose & Fix|AI Diagnose|AI Fix|Diagnose|Inspect|Audit|Force Delete|Start|Delete|Logs|Code|𝗙𝗼𝗿𝗰𝗲 𝗦𝘁𝗮𝗿𝘁|𝗦𝘁𝗼𝗽|𝗥𝗲𝘀𝘁𝗮𝗿𝘁|𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀|𝗚𝗲𝘁 𝗕𝗼𝘁 𝗖𝗼𝗱𝗲|𝗚𝗿𝗮𝘃𝗶𝘅 𝗔𝗜 𝗜𝗻𝘀𝗽𝗲𝗰𝘁|𝗔𝗜 𝗗𝗶𝗮𝗴𝗻𝗼𝘀𝗲 & 𝗙𝗶𝘅|𝗔𝗜 𝗗𝗶𝗮𝗴𝗻𝗼𝘀𝗲|𝗙𝗼𝗿𝗰𝗲 𝗗𝗲𝗹𝗲𝘁𝗲)\s*(?:[⇋⇆⇌⇄]\s*)?\[#([a-zA-Z0-9_-]+)\](?:\s*[⇋⇆⇌⇄])?$"),
         admin_bot_action_handler
     ))
 
