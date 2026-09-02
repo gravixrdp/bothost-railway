@@ -536,43 +536,22 @@ def main():
         show_support_desk
     ))
 
-    # 4. User Bots Pagination, Details, & Actions
+    # 4. Admin Management (Placed BEFORE User generic regexes)
+    # Admin Bots Management
     application.add_handler(MessageHandler(
-        NormalizedRegex(r"^(?:[⬅️⇋⇆⇌⇄]\s*)?(?:Prev Bots|𝗣𝗿𝗲𝘃 𝗕𝗼𝘁𝘀)|(?:Next Bots|𝗡𝗲𝘅𝘁 𝗕𝗼𝘁𝘀)(?:\s*[➡️⇋⇆⇌⇄])?$"),
-        user_text_router
+        NormalizedRegex(r"^(?:[🤖🔙⇋⇆⇌⇄]\s*)?(?:All Hosted Bots|Back to All Bots|All Bots|𝗔𝗹𝗹 𝗛𝗼𝘀𝘁𝗲𝗱 𝗕𝗼𝘁𝘀|𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗹𝗹 𝗕𝗼𝘁𝘀)(?:\s*[⇋⇆⇌⇄])?$"),
+        admin_bots_list_handler
     ))
     application.add_handler(MessageHandler(
-        NormalizedRegex(r"^(?:[▶️⏹️🔄📜📁💾📥🗑️🔑🤖🛠️⚡🧠⇋⇆⇌⇄]\s*)?(?:Start Bot|Stop Bot|Restart Bot|View Logs|Delete Bot|Get Bot Code|Download Code|View Code|Get Code|Export Code|Gravix AI Inspect|AI Inspect & Fix|AI Inspect|AI Audit|AI Diagnose & Fix|AI Diagnose|AI Fix|Diagnose|Inspect|Audit|Manage Env Vars|Env Vars|Start|Stop|Restart|Logs|Code|Delete|𝗦𝘁𝗮𝗿𝘁 𝗕𝗼𝘁|𝗦𝘁𝗼𝗽 𝗕𝗼𝘁|𝗥𝗲𝘀𝘁𝗮𝗿𝘁 𝗕𝗼𝘁|𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀|𝗗𝗲𝗹𝗲𝘁𝗲 𝗕𝗼𝘁|𝗚𝗲𝘁 𝗕𝗼𝘁 𝗖𝗼𝗱𝗲|𝗚𝗿𝗮𝘃𝗶𝘅 𝗔𝗜 𝗜𝗻𝘀𝗽𝗲𝗰𝘁|𝗔𝗜 𝗗𝗶𝗮𝗴𝗻𝗼𝘀𝗲 & 𝗙𝗶𝘅|𝗔𝗜 𝗗𝗶𝗮𝗴𝗻𝗼𝘀𝗲|𝗠𝗮𝗻𝗮𝗴𝗲 𝗘𝗻𝘃 𝗩𝗮𝗿𝘀|𝗘𝗻𝘃 𝗩𝗮𝗿𝘀)\s*(?:[⇋⇆⇌⇄]\s*)?\[#([a-zA-Z0-9_-]+)\](?:\s*[⇋⇆⇌⇄])?$"),
-        handle_bot_action
+        NormalizedRegex(r"^(?:[⬅️⇋⇆⇌⇄]\s*)?(?:Prev All Bots|Prev Bots|𝗣𝗿𝗲𝘃 𝗔𝗹𝗹 𝗕𝗼𝘁𝘀)|(?:Next All Bots|Next Bots|𝗡𝗲𝘅𝘁 𝗔𝗹𝗹 𝗕𝗼𝘁𝘀)(?:\s*[➡️⇋⇆⇌⇄])?$"),
+        handle_admin_text
     ))
     application.add_handler(MessageHandler(
-        NormalizedRegex(r"^(?:[⚠️❌⇋⇆⇌⇄]\s*)?(?:Confirm Delete|Cancel Delete|Confirm|Cancel|𝗖𝗼𝗻𝗳𝗶𝗿𝗺 𝗗𝗲𝗹𝗲𝘁𝗲|𝗖𝗮𝗻𝗰𝗲𝗹 𝗗𝗲𝗹𝗲𝘁𝗲)\s*(?:[⇋⇆⇌⇄]\s*)?\[#([a-zA-Z0-9_-]+)\](?:\s*[⇋⇆⇌⇄])?$"),
-        handle_bot_action
-    ))
-    application.add_handler(MessageHandler(
-        NormalizedRegex(r"^(?:[💾⇋⇆⇌⇄]\s*)?(?:Export Backup|Export Data Backup|Export Data|Backup|𝗘𝘅𝗽𝗼𝗿𝘁 𝗕𝗮𝗰𝗸𝘂𝗽|𝗘𝘅𝗽𝗼𝗿𝘁 𝗗𝗮𝘁𝗮 𝗕𝗮𝗰𝗸𝘂𝗽)\s*(?:[⇋⇆⇌⇄]\s*)?(?:\[#([a-zA-Z0-9_-]+)\])?(?:\s*[⇋⇆⇌⇄])?$"),
-        export_bot_data_handler
-    ))
-    application.add_handler(MessageHandler(
-        NormalizedRegex(r"^(?:[🟢🔴⚪⇋⇆⇌⇄]\s*)*.+\[#([a-zA-Z0-9_-]+)\](?:\s*[⇋⇆⇌⇄])?$"),
-        show_bot_details
+        NormalizedRegex(r"^(?:[▶️⏹️🔄📜📁💾📥🗑️🤖🛠️⚡🧠⇋⇆⇌⇄]\s*)?(?:Force Start|Stop|Restart|View Logs|Get Bot Code|Download Code|View Code|Get Code|Export Code|Gravix AI Inspect|AI Inspect & Fix|AI Inspect|AI Audit|AI Diagnose & Fix|AI Diagnose|AI Fix|Diagnose|Inspect|Audit|Force Delete|Start|Delete|Logs|Code|𝗙𝗼𝗿𝗰𝗲 𝗦𝘁𝗮𝗿𝘁|𝗦𝘁𝗼𝗽|𝗥𝗲𝘀𝘁𝗮𝗿𝘁|𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀|𝗚𝗲𝘁 𝗕𝗼𝘁 𝗖𝗼𝗱𝗲|𝗚𝗿𝗮𝘃𝗶𝘅 𝗔𝗜 𝗜𝗻𝘀𝗽𝗲𝗰𝘁|𝗔𝗜 𝗗𝗶𝗮𝗴𝗻𝗼𝘀𝗲 & 𝗙𝗶𝘅|𝗔𝗜 𝗗𝗶𝗮𝗴𝗻𝗼𝘀𝗲|𝗙𝗼𝗿𝗰𝗲 𝗗𝗲𝗹𝗲𝘁𝗲)\s*(?:[⇋⇆⇌⇄]\s*)?\[#([a-zA-Z0-9_-]+)\](?:\s*[⇋⇆⇌⇄])?$"),
+        admin_bot_action_handler
     ))
 
-    # 5. Admin Panel Open / Navigation / Stats
-    application.add_handler(MessageHandler(
-        NormalizedRegex(r"^(?:[👑🔄🔙🏠⇋⇆⇌⇄]\s*)?(?:Open Admin Panel|Refresh Admin|Back to Admin|Admin Panel|Admin|𝗢𝗽𝗲𝗻 𝗔𝗱𝗺𝗶𝗻 𝗣𝗮𝗻𝗲𝗹|𝗥𝗲𝗳𝗿𝗲𝘀𝗵 𝗔𝗱𝗺𝗶𝗻|𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻)(?:\s*[👑⇋⇆⇌⇄])?$"),
-        admin_panel
-    ))
-    application.add_handler(MessageHandler(
-        NormalizedRegex(r"^(?:[🏠⇋⇆⇌⇄]\s*)?(?:Exit Admin|Exit|Quit|𝗘𝘅𝗶𝘁 𝗔𝗱𝗺𝗶𝗻)(?:\s*[⇋⇆⇌⇄])?$"),
-        admin_exit_handler
-    ))
-    application.add_handler(MessageHandler(
-        NormalizedRegex(r"^(?:[📊⇋⇆⇌⇄]\s*)?(?:System Stats|Stats|𝗦𝘆𝘀𝘁𝗲𝗺 𝗦𝘁𝗮𝘁𝘀)(?:\s*[⇋⇆⇌⇄])?$"),
-        admin_stats_handler
-    ))
-
-    # 6. Admin Users Management & Reachability
+    # Admin Users Management & Reachability
     application.add_handler(CommandHandler(["checkusers", "checkblocked", "audience"], admin_check_blocked_users_handler))
     application.add_handler(MessageHandler(
         NormalizedRegex(r"^(?:[🔍👥⚡⇋⇆⇌⇄]\s*)?(?:Check Blocked Users|Blocked Users|Check Blocked|Audience Health|Check Audience|𝗖𝗵𝗲𝗰𝗸 𝗕𝗹𝗼𝗰𝗸𝗲𝗱 𝗨𝘀𝗲𝗿𝘀)(?:\s*[⇋⇆⇌⇄])?$"),
@@ -599,18 +578,40 @@ def main():
         admin_user_action_handler
     ))
 
-    # 7. Admin Bots Management
+    # 5. User Bots Pagination, Details, & Actions
     application.add_handler(MessageHandler(
-        NormalizedRegex(r"^(?:[🤖🔙⇋⇆⇌⇄]\s*)?(?:All Hosted Bots|Back to All Bots|All Bots|𝗔𝗹𝗹 𝗛𝗼𝘀𝘁𝗲𝗱 𝗕𝗼𝘁𝘀|𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗹𝗹 𝗕𝗼𝘁𝘀)(?:\s*[⇋⇆⇌⇄])?$"),
-        admin_bots_list_handler
+        NormalizedRegex(r"^(?:[⬅️⇋⇆⇌⇄]\s*)?(?:Prev Bots|𝗣𝗿𝗲𝘃 𝗕𝗼𝘁𝘀)|(?:Next Bots|𝗡𝗲𝘅𝘁 𝗕𝗼𝘁𝘀)(?:\s*[➡️⇋⇆⇌⇄])?$"),
+        user_text_router
     ))
     application.add_handler(MessageHandler(
-        NormalizedRegex(r"^(?:[⬅️⇋⇆⇌⇄]\s*)?(?:Prev All Bots|Prev Bots|𝗣𝗿𝗲𝘃 𝗔𝗹𝗹 𝗕𝗼𝘁𝘀)|(?:Next All Bots|Next Bots|𝗡𝗲𝘅𝘁 𝗔𝗹𝗹 𝗕𝗼𝘁𝘀)(?:\s*[➡️⇋⇆⇌⇄])?$"),
-        handle_admin_text
+        NormalizedRegex(r"^(?:[▶️⏹️🔄📜📁💾📥🗑️🔑🤖🛠️⚡🧠⇋⇆⇌⇄]\s*)?(?:Force Start|Force Delete|Start Bot|Stop Bot|Restart Bot|View Logs|Delete Bot|Get Bot Code|Download Code|View Code|Get Code|Export Code|Gravix AI Inspect|AI Inspect & Fix|AI Inspect|AI Audit|AI Diagnose & Fix|AI Diagnose|AI Fix|Diagnose|Inspect|Audit|Manage Env Vars|Env Vars|Start|Stop|Restart|Logs|Code|Delete|𝗙𝗼𝗿𝗰𝗲 𝗦𝘁𝗮𝗿𝘁|𝗙𝗼𝗿𝗰𝗲 𝗗𝗲𝗹𝗲𝘁𝗲|𝗦𝘁𝗮𝗿𝘁 𝗕𝗼𝘁|𝗦𝘁𝗼𝗽 𝗕𝗼𝘁|𝗥𝗲𝘀𝘁𝗮𝗿𝘁 𝗕𝗼𝘁|𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀|𝗗𝗲𝗹𝗲𝘁𝗲 𝗕𝗼𝘁|𝗚𝗲𝘁 𝗕𝗼𝘁 𝗖𝗼𝗱𝗲|𝗚𝗿𝗮𝘃𝗶𝘅 𝗔𝗜 𝗜𝗻𝘀𝗽𝗲𝗰𝘁|𝗔𝗜 𝗗𝗶𝗮𝗴𝗻𝗼𝘀𝗲 & 𝗙𝗶𝘅|𝗔𝗜 𝗗𝗶𝗮𝗴𝗻𝗼𝘀𝗲|𝗠𝗮𝗻𝗮𝗴𝗲 𝗘𝗻𝘃 𝗩𝗮𝗿𝘀|𝗘𝗻𝘃 𝗩𝗮𝗿𝘀)\s*(?:[⇋⇆⇌⇄]\s*)?\[#([a-zA-Z0-9_-]+)\](?:\s*[⇋⇆⇌⇄])?$"),
+        handle_bot_action
     ))
     application.add_handler(MessageHandler(
-        NormalizedRegex(r"^(?:[▶️⏹️🔄📜📁💾📥🗑️🤖🛠️⚡🧠⇋⇆⇌⇄]\s*)?(?:Force Start|Stop|Restart|View Logs|Get Bot Code|Download Code|View Code|Get Code|Export Code|Gravix AI Inspect|AI Inspect & Fix|AI Inspect|AI Audit|AI Diagnose & Fix|AI Diagnose|AI Fix|Diagnose|Inspect|Audit|Force Delete|Start|Delete|Logs|Code|𝗙𝗼𝗿𝗰𝗲 𝗦𝘁𝗮𝗿𝘁|𝗦𝘁𝗼𝗽|𝗥𝗲𝘀𝘁𝗮𝗿𝘁|𝗩𝗶𝗲𝘄 𝗟𝗼𝗴𝘀|𝗚𝗲𝘁 𝗕𝗼𝘁 𝗖𝗼𝗱𝗲|𝗚𝗿𝗮𝘃𝗶𝘅 𝗔𝗜 𝗜𝗻𝘀𝗽𝗲𝗰𝘁|𝗔𝗜 𝗗𝗶𝗮𝗴𝗻𝗼𝘀𝗲 & 𝗙𝗶𝘅|𝗔𝗜 𝗗𝗶𝗮𝗴𝗻𝗼𝘀𝗲|𝗙𝗼𝗿𝗰𝗲 𝗗𝗲𝗹𝗲𝘁𝗲)\s*(?:[⇋⇆⇌⇄]\s*)?\[#([a-zA-Z0-9_-]+)\](?:\s*[⇋⇆⇌⇄])?$"),
-        admin_bot_action_handler
+        NormalizedRegex(r"^(?:[⚠️❌⇋⇆⇌⇄]\s*)?(?:Confirm Delete|Cancel Delete|Confirm|Cancel|𝗖𝗼𝗻𝗳𝗶𝗿𝗺 𝗗𝗲𝗹𝗲𝘁𝗲|𝗖𝗮𝗻𝗰𝗲𝗹 𝗗𝗲𝗹𝗲𝘁𝗲)\s*(?:[⇋⇆⇌⇄]\s*)?\[#([a-zA-Z0-9_-]+)\](?:\s*[⇋⇆⇌⇄])?$"),
+        handle_bot_action
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:[💾⇋⇆⇌⇄]\s*)?(?:Export Backup|Export Data Backup|Export Data|Backup|𝗘𝘅𝗽𝗼𝗿𝘁 𝗕𝗮𝗰𝗸𝘂𝗽|𝗘𝘅𝗽𝗼𝗿𝘁 𝗗𝗮𝘁𝗮 𝗕𝗮𝗰𝗸𝘂𝗽)\s*(?:[⇋⇆⇌⇄]\s*)?(?:\[#([a-zA-Z0-9_-]+)\])?(?:\s*[⇋⇆⇌⇄])?$"),
+        export_bot_data_handler
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:[🟢🔴⚪⇋⇆⇌⇄]\s*)*(?!(?:Force|Start|Stop|Restart|Delete|View|Get|Download|Export|Gravix|AI|Manage|Confirm|Cancel|𝗙𝗼𝗿𝗰𝗲|𝗦𝘁𝗮𝗿𝘁|𝗦𝘁𝗼𝗽|𝗥𝗲𝘀𝘁𝗮𝗿𝘁|𝗗𝗲𝗹𝗲𝘁𝗲|𝗩𝗶𝗲𝘄|𝗚𝗲𝘁|𝗖𝗼𝗻𝗳𝗶𝗿𝗺|𝗖𝗮𝗻𝗰𝗲𝗹)\b).+\[#([a-zA-Z0-9_-]+)\](?:\s*[⇋⇆⇌⇄])?$"),
+        show_bot_details
+    ))
+
+    # 6. Admin Panel Open / Navigation / Stats
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:[👑🔄🔙🏠⇋⇆⇌⇄]\s*)?(?:Open Admin Panel|Refresh Admin|Back to Admin|Admin Panel|Admin|𝗢𝗽𝗲𝗻 𝗔𝗱𝗺𝗶𝗻 𝗣𝗮𝗻𝗲𝗹|𝗥𝗲𝗳𝗿𝗲𝘀𝗵 𝗔𝗱𝗺𝗶𝗻|𝗕𝗮𝗰𝗸 𝘁𝗼 𝗔𝗱𝗺𝗶𝗻)(?:\s*[👑⇋⇆⇌⇄])?$"),
+        admin_panel
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:[🏠⇋⇆⇌⇄]\s*)?(?:Exit Admin|Exit|Quit|𝗘𝘅𝗶𝘁 𝗔𝗱𝗺𝗶𝗻)(?:\s*[⇋⇆⇌⇄])?$"),
+        admin_exit_handler
+    ))
+    application.add_handler(MessageHandler(
+        NormalizedRegex(r"^(?:[📊⇋⇆⇌⇄]\s*)?(?:System Stats|Stats|𝗦𝘆𝘀𝘁𝗲𝗺 𝗦𝘁𝗮𝘁𝘀)(?:\s*[⇋⇆⇌⇄])?$"),
+        admin_stats_handler
     ))
 
     # 8. Admin Force-Sub Channel Management
