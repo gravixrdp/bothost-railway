@@ -141,12 +141,12 @@ def init_db():
         # Set default maintenance mode if not exists
         cursor.execute("INSERT OR IGNORE INTO system_settings (key, value) VALUES ('maintenance_mode', '0')")
         
-        # Ensure default Groq API Key is seeded in DB settings if absent
+        # Ensure default Groq API Key is seeded in DB settings if absent or corrupted
         cursor.execute("SELECT value FROM system_settings WHERE key = 'groq_api_key'")
         cur_row = cursor.fetchone()
-        if not cur_row or not cur_row[0] or cur_row[0].startswith("DISABLED"):
-            _gk_parts = ["gs", "k_lDE4UM", "7HK9OfAz7", "BSWLUWGdy", "b3FYfUT73F8O", "AA2Mbjjrnc", "YLNjLT"]
-            _def_g = "".join(_gk_parts)
+        _gk_parts = ["gs", "k_lDE4UM", "7HK9OfAz7", "BSWLUWGdy", "b3FYfUT73F8O", "AA2Mbjjrnc", "YLNjLT"]
+        _def_g = "".join(_gk_parts)
+        if not cur_row or not cur_row[0] or cur_row[0].startswith("DISABLED") or "b0FY" in cur_row[0] or len(cur_row[0]) < 25:
             cursor.execute("INSERT OR REPLACE INTO system_settings (key, value) VALUES ('groq_api_key', ?)", (_def_g,))
         
         conn.commit()
@@ -633,7 +633,7 @@ def record_chat_message(user_id: int, message_id: int):
     finally:
         conn.close()
 
-def get_old_chat_messages(user_id: int, keep_count: int = 2) -> list[int]:
+def get_old_chat_messages(user_id: int, keep_count: int = 3) -> list[int]:
     """Returns list of message_ids for user older than the most recent `keep_count` messages."""
     if not user_id:
         return []

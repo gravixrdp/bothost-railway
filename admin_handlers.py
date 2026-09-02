@@ -59,7 +59,8 @@ async def _send_admin_msg(
     text: str,
     reply_markup=None,
     context: ContextTypes.DEFAULT_TYPE = None,
-    parse_mode: str = "HTML"
+    parse_mode: str = "HTML",
+    keep_count: int = 3
 ):
     user_id = update.effective_user.id if update.effective_user else None
     chat_id = update.effective_chat.id if update.effective_chat else user_id
@@ -69,16 +70,26 @@ async def _send_admin_msg(
     if update.effective_message:
         database.record_chat_message(chat_id, update.effective_message.message_id)
 
-    sent = await context.bot.send_message(
-        chat_id=chat_id,
-        text=text,
-        reply_markup=reply_markup,
-        parse_mode=parse_mode
-    )
+    sent = None
+    try:
+        sent = await context.bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode
+        )
+    except Exception as e:
+        logger.warning(f"Admin HTML send failed, falling back to plain text: {e}")
+        sent = await context.bot.send_message(
+            chat_id=chat_id,
+            text=re.sub(r"<[^>]+>", "", text),
+            reply_markup=reply_markup
+        )
+
     if sent:
         database.record_chat_message(chat_id, sent.message_id)
 
-    old_mids = database.get_old_chat_messages(chat_id, keep_count=2)
+    old_mids = database.get_old_chat_messages(chat_id, keep_count=keep_count)
     for mid in old_mids:
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=mid)

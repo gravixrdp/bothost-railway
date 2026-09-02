@@ -64,9 +64,10 @@ async def send_clean_screen(
     text: str,
     reply_markup=None,
     photo_path: str = None,
-    parse_mode: str = "HTML"
+    parse_mode: str = "HTML",
+    keep_count: int = 3
 ):
-    """Sends screen with automatic SQLite-backed message tracking and deletes all older messages keeping only 2 messages."""
+    """Sends screen with automatic SQLite-backed message tracking and deletes older messages keeping recent 3-4 messages."""
     user_id = update.effective_user.id if update.effective_user else None
     chat_id = update.effective_chat.id if update.effective_chat else user_id
     if not chat_id:
@@ -76,7 +77,7 @@ async def send_clean_screen(
     if update.effective_message:
         database.record_chat_message(chat_id, update.effective_message.message_id)
 
-    # 2. Send the message or photo
+    # 2. Send the message or photo with resilient fallback
     sent = None
     if photo_path and os.path.exists(photo_path):
         try:
@@ -90,26 +91,41 @@ async def send_clean_screen(
                 )
         except Exception as e:
             logger.warning(f"Failed to send photo: {e}")
+            try:
+                sent = await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    reply_markup=reply_markup,
+                    parse_mode=parse_mode
+                )
+            except Exception:
+                sent = await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=re.sub(r"<[^>]+>", "", text),
+                    reply_markup=reply_markup
+                )
+    else:
+        try:
             sent = await context.bot.send_message(
                 chat_id=chat_id,
                 text=text,
                 reply_markup=reply_markup,
                 parse_mode=parse_mode
             )
-    else:
-        sent = await context.bot.send_message(
-            chat_id=chat_id,
-            text=text,
-            reply_markup=reply_markup,
-            parse_mode=parse_mode
-        )
+        except Exception as e:
+            logger.warning(f"Failed to send HTML message, falling back to plain text: {e}")
+            sent = await context.bot.send_message(
+                chat_id=chat_id,
+                text=re.sub(r"<[^>]+>", "", text),
+                reply_markup=reply_markup
+            )
 
     # 3. Track sent message
     if sent:
         database.record_chat_message(chat_id, sent.message_id)
 
-    # 4. Immediately delete all older messages keeping max 2
-    old_mids = database.get_old_chat_messages(chat_id, keep_count=2)
+    # 4. Immediately delete all older messages keeping recent 3-4 messages
+    old_mids = database.get_old_chat_messages(chat_id, keep_count=keep_count)
     for mid in old_mids:
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=mid)
