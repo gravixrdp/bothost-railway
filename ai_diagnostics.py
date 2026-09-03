@@ -3,7 +3,7 @@ import re
 import html
 import logging
 import httpx
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 
 from config import GROQ_API_KEY, GROQ_MODEL, DATA_DIR
 import database
@@ -14,26 +14,27 @@ logger = logging.getLogger("GravixHost.AIDiagnostics")
 AI_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 SYSTEM_PROMPT = (
-    "You are Gravix AI Diagnostics Engine, an elite Python Telegram bot cloud architect.\n"
-    "Analyze the provided bot status, recent console logs, error tracebacks, and source code.\n\n"
-    "CORE RESPONSE RULES:\n"
-    "1. BE CONCISE & SNAPPY (Under 220 words total). Keep token usage minimal and direct.\n"
-    "2. LANGUAGE: Fluent, clear ENGLISH only.\n"
-    "3. FORMAT: Strictly Telegram-compatible HTML tags (<b>, <i>, <code>, <blockquote>, <pre>). Never output raw markdown (** or ```) or full HTML document tags.\n"
-    "4. PRIVACY: Never mention third-party AI brands (Groq, OpenAI, Meta, Qwen). You are Gravix AI.\n"
-    "5. ADVISORY: Only suggest solutions for user/admin review; never claim you altered code.\n\n"
+    "You are Gravix AI Diagnostics Engine, a dedicated Python Telegram bot cloud architect.\n"
+    "You are analyzing ONE SPECIFIC BOT instance provided in the prompt.\n\n"
+    "CRITICAL RULES:\n"
+    "1. IDENTITY & ACCURACY: Analyze ONLY the specific bot given in 'Target Bot Name', 'Target Bot ID', and 'BOT SOURCE CODE'. Do NOT invent or describe any other bot. If source code is provided, describe EXACTLY what that specific code does.\n"
+    "2. BE CONCISE & SNAPPY (Under 200 words total). Direct, informative, and token-efficient.\n"
+    "3. LANGUAGE: Fluent, clear ENGLISH only.\n"
+    "4. FORMAT: Strictly Telegram-compatible HTML tags (<b>, <i>, <code>, <blockquote>, <pre>). Never output raw markdown (** or ```) or full HTML document tags.\n"
+    "5. PRIVACY: Never mention third-party AI brands (Groq, OpenAI, Meta, Qwen). You are Gravix AI.\n"
+    "6. ADVISORY: Only suggest solutions for user/admin review; never claim you altered code.\n\n"
     "IF BOT IS RUNNING & HEALTHY:\n"
     "🎯 <b>Bot Purpose & Role:</b>\n"
-    "<blockquote>Short 1-2 sentence explanation of what this bot does based on its code.</blockquote>\n\n"
+    "<blockquote>Accurate 1-2 sentence explanation of what THIS specific bot's code does.</blockquote>\n\n"
     "🟢 <b>Runtime Health:</b>\n"
     "<blockquote>Active & polling normally with zero unhandled errors.</blockquote>\n\n"
     "IF BOT IS CRASHED / STOPPED / HAS ERRORS:\n"
     "🔍 <b>Root Cause:</b>\n"
-    "<blockquote>Short 1-2 sentence explanation of what failed and exact line/dependency.</blockquote>\n\n"
+    "<blockquote>Exact 1-2 sentence explanation of why THIS bot failed based on its logs and code.</blockquote>\n\n"
     "🛠️ <b>Quick Fix:</b>\n"
     "<blockquote>1-2 clear bullet points to resolve.</blockquote>\n\n"
     "💻 <b>Code Solution:</b>\n"
-    "<pre><code># Short drop-in code snippet</code></pre>"
+    "<pre><code># Short drop-in code snippet for THIS bot</code></pre>"
 )
 
 def get_ai_api_key() -> str:
@@ -52,6 +53,43 @@ def get_ai_api_key() -> str:
     except Exception:
         pass
     return valid_key
+
+def find_bot_script(bot_id: str, owner_id: Any, db_script_path: Optional[str] = None) -> Tuple[str, str]:
+    """Finds and reads the exact source code for the specified bot instance."""
+    bot_id = str(bot_id).strip()
+    candidates = []
+    if db_script_path:
+        candidates.append(db_script_path)
+    if owner_id:
+        candidates.append(os.path.join(DATA_DIR, "bots", f"{owner_id}_{bot_id}", "main.py"))
+        candidates.append(os.path.join(DATA_DIR, "bots", f"{owner_id}_{bot_id}.py"))
+    candidates.append(os.path.join(DATA_DIR, "bots", f"{bot_id}", "main.py"))
+    candidates.append(os.path.join(DATA_DIR, "bots", f"{bot_id}.py"))
+
+    bots_dir = os.path.join(DATA_DIR, "bots")
+    if os.path.exists(bots_dir):
+        try:
+            for entry in os.listdir(bots_dir):
+                if bot_id in entry:
+                    entry_path = os.path.join(bots_dir, entry)
+                    if os.path.isdir(entry_path):
+                        candidates.append(os.path.join(entry_path, "main.py"))
+                    elif os.path.isfile(entry_path):
+                        candidates.append(entry_path)
+        except Exception:
+            pass
+
+    for p in candidates:
+        if p and os.path.exists(p) and os.path.isfile(p):
+            try:
+                with open(p, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+                    if content.strip():
+                        return content[:5000], p
+            except Exception as e:
+                logger.warning(f"Failed to read script at {p}: {e}")
+
+    return "", ""
 
 def format_ai_response_for_telegram(ai_text: str) -> str:
     """Safely converts AI raw markdown/code blocks into valid Telegram HTML without breaking entities."""
@@ -108,22 +146,13 @@ async def run_ai_diagnostics(bot_id: str, caller_user_id: int, is_admin_caller: 
     owner_id = bot_data.get('user_id')
     status = bot_data.get('status', 'STOPPED')
 
-    # 1. Fetch recent logs
+    # 1. Fetch recent logs for THIS exact bot
     logs = bot_manager.get_logs(bot_id, lines=40)
     if not logs or "No console logs recorded" in logs:
-        logs = "No console logs recorded on disk yet."
+        logs = f"No console logs recorded on disk yet for instance #{bot_id}."
 
-    # 2. Fetch script code snippet if available
-    script_path = bot_data.get('script_path') or os.path.join(DATA_DIR, "bots", f"{owner_id}_{bot_id}", "main.py")
-    code_snippet = ""
-    if os.path.exists(script_path) and os.path.isfile(script_path):
-        try:
-            with open(script_path, "r", encoding="utf-8", errors="ignore") as f:
-                full_code = f.read()
-                code_lines = full_code.splitlines()[:120]
-                code_snippet = "\n".join(code_lines)
-        except Exception as e:
-            code_snippet = f"# Error reading script: {e}"
+    # 2. Fetch script code for THIS exact bot
+    code_snippet, found_path = find_bot_script(bot_id, owner_id, bot_data.get('script_path'))
 
     # 3. Check if API key is configured
     api_key = get_ai_api_key()
@@ -135,19 +164,24 @@ async def run_ai_diagnostics(bot_id: str, caller_user_id: int, is_admin_caller: 
             "Gravix AI service is temporarily unavailable. Please try again later.</blockquote>"
         )
 
-    # 4. Prepare Context
+    # 4. Prepare Context strictly for THIS bot
     user_content = (
-        f"Bot Name: {bot_name}\n"
-        f"Bot ID: {bot_id}\n"
-        f"Instance Status: {status}\n"
+        f"Target Bot Name: {bot_name}\n"
+        f"Target Bot ID: {bot_id}\n"
+        f"Target Instance Status: {status}\n"
         f"Owner UID: {owner_id}\n\n"
-        f"--- CONSOLE LOGS & TRACEBACK ---\n"
+        f"--- CONSOLE LOGS FOR BOT #{bot_id} ---\n"
         f"{logs}\n\n"
     )
     if code_snippet:
         user_content += (
-            f"--- BOT SOURCE CODE (main.py) ---\n"
+            f"--- BOT SOURCE CODE FOR #{bot_id} (main.py) ---\n"
             f"{code_snippet}\n"
+        )
+    else:
+        user_content += (
+            f"--- BOT SOURCE CODE FOR #{bot_id} ---\n"
+            "Source code file is empty or not found on disk. Base your explanation strictly on the bot name and status.\n"
         )
 
     # 5. Call AI Backend with Multi-Model Failover
