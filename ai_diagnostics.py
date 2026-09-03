@@ -53,6 +53,32 @@ def get_ai_api_key() -> str:
         pass
     return valid_key
 
+def format_ai_response_for_telegram(ai_text: str) -> str:
+    """Safely converts AI raw markdown/code blocks into valid Telegram HTML without breaking entities."""
+    if not ai_text:
+        return "No diagnostic output received."
+    
+    # 1. Escape code blocks ```lang ... ```
+    def replace_code_block(match):
+        code_body = match.group(2)
+        escaped_code = html.escape(code_body.strip())
+        return f"<pre><code>{escaped_code}</code></pre>"
+    
+    text = re.sub(r"```([a-zA-Z0-9_-]*)\n?(.*?)```", replace_code_block, ai_text, flags=re.DOTALL)
+    
+    # 2. Match single backticks `code`
+    def replace_inline_code(match):
+        return f"<code>{html.escape(match.group(1))}</code>"
+    text = re.sub(r"`([^`\n]+)`", replace_inline_code, text)
+    
+    # 3. Match bold **text**
+    text = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", text)
+    
+    # 4. Match markdown bullets * or -
+    text = re.sub(r"^\s*[\*\-]\s+", "• ", text, flags=re.MULTILINE)
+    
+    return text.strip()
+
 async def run_ai_diagnostics(bot_id: str, caller_user_id: int, is_admin_caller: bool = False) -> str:
     """
     Analyzes bot error logs, tracebacks, and source code using Gravix AI Neural Engine.
@@ -109,55 +135,78 @@ async def run_ai_diagnostics(bot_id: str, caller_user_id: int, is_admin_caller: 
             f"{code_snippet}\n"
         )
 
-    # 5. Call AI Backend
+    # 5. Call AI Backend with Multi-Model Failover
+    candidate_models = [
+        (GROQ_MODEL or "qwen/qwen3.8-27b").strip(),
+        "qwen/qwen3.8-27b",
+        "qwen/qwen3.6-27b",
+        "openai/gpt-oss-120b",
+        "groq/compound"
+    ]
+    seen_models = set()
+    models_to_try = [m for m in candidate_models if m and not (m in seen_models or seen_models.add(m))]
+
+    ai_reply = None
+    last_error = ""
+
     try:
-        async with httpx.AsyncClient(timeout=25.0) as client:
-            response = await client.post(
-                AI_API_URL,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": GROQ_MODEL or "qwen/qwen3.8-27b",
-                    "messages": [
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": user_content}
-                    ],
-                    "temperature": 0.15,
-                    "max_tokens": 350
-                }
-            )
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            for model_name in models_to_try:
+                try:
+                    response = await client.post(
+                        AI_API_URL,
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json"
+                        },
+                        json={
+                            "model": model_name,
+                            "messages": [
+                                {"role": "system", "content": SYSTEM_PROMPT},
+                                {"role": "user", "content": user_content}
+                            ],
+                            "temperature": 0.15,
+                            "max_tokens": 350
+                        }
+                    )
 
-            if response.status_code != 200:
-                logger.error(f"AI engine returned error {response.status_code}: {response.text}")
-                return (
-                    f"<b>🤖 GRAVIX AI DIAGNOSTICS [<code>#{html.escape(bot_id)}</code>]</b>\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                    f"<blockquote>⚠️ <b>Diagnostic Engine Notice:</b>\n"
-                    f"AI engine service returned status <code>{response.status_code}</code>. Please check logs manually.</blockquote>"
-                )
+                    if response.status_code == 200:
+                        data = response.json()
+                        raw_content = data.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
+                        if raw_content:
+                            ai_reply = format_ai_response_for_telegram(raw_content)
+                            break
+                    else:
+                        last_error = f"Status {response.status_code}: {response.text[:120]}"
+                        logger.warning(f"AI model {model_name} returned error: {last_error}")
+                except Exception as me:
+                    last_error = str(me)
+                    logger.warning(f"AI model {model_name} failed: {me}")
 
-            data = response.json()
-            ai_reply = data.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
-            ai_reply = ai_reply.replace("```python", "").replace("```html", "").replace("```", "")
-
-            badge = "🟢 ACTIVE & HEALTHY" if status == "RUNNING" else "⚠️ DIAGNOSTIC REPORT"
-            u_data = database.get_user(owner_id) if owner_id else None
-            u_display = database.get_user_display_name(u_data, fallback_uid=owner_id)
-            b_uname = (bot_data.get('bot_username') or '').strip().lstrip('@')
-            bot_uname_str = f" (@{b_uname})" if b_uname else ""
-
-            header = (
-                f"<b>🤖 GRAVIX AI BOT DIAGNOSTICS</b>\n"
-                f"<i>Powered by Gravix Neural Diagnostics Core</i>\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"🤖 <b>Bot:</b> <b>{html.escape(bot_name)}</b>{bot_uname_str} (<code>#{html.escape(bot_id)}</code>)\n"
-                f"⚡ <b>Status:</b> <code>{status}</code> ({badge})\n"
-                f"👤 <b>Owner:</b> {u_display} [<code>{owner_id}</code>]\n"
+        if not ai_reply:
+            return (
+                f"<b>🤖 GRAVIX AI DIAGNOSTICS [<code>#{html.escape(bot_id)}</code>]</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"<blockquote>⚠️ <b>Diagnostic Engine Notice:</b>\n"
+                f"AI engine service temporarily unavailable ({html.escape(last_error)}). Please check logs manually.</blockquote>"
             )
-            return header + ai_reply
+
+        badge = "🟢 ACTIVE & HEALTHY" if status == "RUNNING" else "⚠️ DIAGNOSTIC REPORT"
+        u_data = database.get_user(owner_id) if owner_id else None
+        u_display = database.get_user_display_name(u_data, fallback_uid=owner_id)
+        b_uname = (bot_data.get('bot_username') or '').strip().lstrip('@')
+        bot_uname_str = f" (@{b_uname})" if b_uname else ""
+
+        header = (
+            f"<b>🤖 GRAVIX AI BOT DIAGNOSTICS</b>\n"
+            f"<i>Powered by Gravix Neural Diagnostics Core</i>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🤖 <b>Bot:</b> <b>{html.escape(bot_name)}</b>{bot_uname_str} (<code>#{html.escape(bot_id)}</code>)\n"
+            f"⚡ <b>Status:</b> <code>{status}</code> ({badge})\n"
+            f"👤 <b>Owner:</b> {u_display} [<code>{owner_id}</code>]\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        )
+        return header + ai_reply
 
     except httpx.TimeoutException:
         return (

@@ -599,10 +599,11 @@ async def admin_bot_detail_handler(update: Update, context: ContextTypes.DEFAULT
     await _send_admin_msg(update, text, reply_markup=reply_markup, context=context)
 
 async def admin_bot_action_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str = None, bot_id: str = None):
-    admin_id = update.effective_user.id
-    if not is_admin(admin_id):
-        await _send_admin_msg(update, "⛔ <b>Access Denied.</b>", context=context)
-        return
+    user_id = update.effective_user.id if update.effective_user else None
+    if not is_admin(user_id):
+        from user_handlers import handle_bot_action
+        return await handle_bot_action(update, context, action=action, bot_id=bot_id)
+    admin_id = user_id
 
     raw_text = update.message.text if (update.message and update.message.text) else ""
     text_input = normalize_user_input(raw_text)
