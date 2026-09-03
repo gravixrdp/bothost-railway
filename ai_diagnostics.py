@@ -58,7 +58,7 @@ def format_ai_response_for_telegram(ai_text: str) -> str:
     if not ai_text:
         return "No diagnostic output received."
     
-    # 1. Escape code blocks ```lang ... ```
+    # 1. Normalize code fences ```lang\ncode\n``` -> <pre><code>escaped_code</code></pre>
     def replace_code_block(match):
         code_body = match.group(2)
         escaped_code = html.escape(code_body.strip())
@@ -66,18 +66,33 @@ def format_ai_response_for_telegram(ai_text: str) -> str:
     
     text = re.sub(r"```([a-zA-Z0-9_-]*)\n?(.*?)```", replace_code_block, ai_text, flags=re.DOTALL)
     
-    # 2. Match single backticks `code`
+    # 2. Normalize inline backticks `code` -> <code>escaped_code</code>
     def replace_inline_code(match):
         return f"<code>{html.escape(match.group(1))}</code>"
     text = re.sub(r"`([^`\n]+)`", replace_inline_code, text)
     
-    # 3. Match bold **text**
+    # 3. Normalize **bold** -> <b>bold</b>
     text = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", text)
     
-    # 4. Match markdown bullets * or -
+    # 4. Normalize bullets
     text = re.sub(r"^\s*[\*\-]\s+", "• ", text, flags=re.MULTILINE)
     
-    return text.strip()
+    # 5. Sanitize any invalid stray '<' or '>' that isn't part of Telegram allowed tags
+    allowed_pattern = r"(</?(?:b|i|u|s|code|pre|blockquote)>|<pre><code[^>]*>|</(?:code></pre)>)"
+    
+    parts = re.split(allowed_pattern, text)
+    cleaned_parts = []
+    for p in parts:
+        if not p:
+            continue
+        if re.match(allowed_pattern, p):
+            cleaned_parts.append(p)
+        else:
+            escaped = p.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            escaped = re.sub(r'&amp;(amp|lt|gt|quot|#x27|#39);', r'&\1;', escaped)
+            cleaned_parts.append(escaped)
+            
+    return "".join(cleaned_parts).strip()
 
 async def run_ai_diagnostics(bot_id: str, caller_user_id: int, is_admin_caller: bool = False) -> str:
     """

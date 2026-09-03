@@ -683,20 +683,30 @@ async def admin_bot_action_handler(update: Update, context: ContextTypes.DEFAULT
     elif action == "ai_diagnose":
         from ai_diagnostics import run_ai_diagnostics
         bot_data = database.get_bot(bot_id)
-        await _send_admin_msg(
-            update,
-            f"⏳ <b>Gravix AI analyzing instance <code>#{bot_id}</code> status, logs & code...</b>",
-            context=context
-        )
-        report = await run_ai_diagnostics(bot_id, admin_id, is_admin_caller=True)
         status = bot_data.get('status', 'STOPPED') if bot_data else 'STOPPED'
         reply_markup = get_admin_bot_detail_keyboard(bot_id, status)
-        await _send_admin_msg(
+        wait_msg = await _send_admin_msg(
             update,
-            report,
+            f"⏳ <b>Gravix AI analyzing instance <code>#{bot_id}</code> status, logs & code...</b>",
             reply_markup=reply_markup,
             context=context
         )
+        try:
+            report = await run_ai_diagnostics(bot_id, admin_id, is_admin_caller=True)
+        except Exception as err:
+            logger.error(f"Admin AI diagnostics error: {err}")
+            report = f"<blockquote>❌ <b>AI Diagnostics Error:</b> {html.escape(str(err))}</blockquote>"
+
+        if wait_msg:
+            try:
+                await wait_msg.edit_text(report, parse_mode="HTML")
+            except Exception:
+                try:
+                    await wait_msg.edit_text(re.sub(r"<[^>]+>", "", report))
+                except Exception:
+                    await _send_admin_msg(update, report, reply_markup=reply_markup, context=context)
+        else:
+            await _send_admin_msg(update, report, reply_markup=reply_markup, context=context)
 
     elif action == "del":
         await bot_manager.stop_bot(bot_id)

@@ -804,19 +804,30 @@ async def handle_bot_action(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     elif action == "ai_diagnose":
         from ai_diagnostics import run_ai_diagnostics
-        await send_clean_screen(
+        status = bot_data.get('status', 'STOPPED') if bot_data else 'STOPPED'
+        reply_markup = get_bot_detail_reply_keyboard(bot_id, status)
+        wait_msg = await send_clean_screen(
             update,
             context,
-            f"⏳ <b>Gravix AI analyzing instance <code>#{bot_id}</code> status, logs & code...</b>"
+            f"⏳ <b>Gravix AI analyzing instance <code>#{bot_id}</code> status, logs & code...</b>",
+            reply_markup=reply_markup
         )
-        report = await run_ai_diagnostics(bot_id, user_id, is_admin_caller=False)
-        status = bot_data['status']
-        await send_clean_screen(
-            update,
-            context,
-            report,
-            reply_markup=get_bot_detail_reply_keyboard(bot_id, status)
-        )
+        try:
+            report = await run_ai_diagnostics(bot_id, user_id, is_admin_caller=False)
+        except Exception as err:
+            logger.error(f"User AI diagnostics error: {err}")
+            report = f"<blockquote>❌ <b>AI Diagnostics Error:</b> {html.escape(str(err))}</blockquote>"
+
+        if wait_msg:
+            try:
+                await wait_msg.edit_text(report, parse_mode="HTML")
+            except Exception:
+                try:
+                    await wait_msg.edit_text(re.sub(r"<[^>]+>", "", report))
+                except Exception:
+                    await send_clean_screen(update, context, report, reply_markup=reply_markup)
+        else:
+            await send_clean_screen(update, context, report, reply_markup=reply_markup)
 
     elif action == "delete_confirm":
         header = make_header_card("CONFIRM DELETION", "Permanent Instance Removal")
