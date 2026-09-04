@@ -735,7 +735,7 @@ async def handle_bot_action(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             action = "backup"
         elif "get bot code" in c_low or "bot code" in c_low or "get code" in c_low or "code" in c_low or "download code" in c_low:
             action = "code"
-        elif "inspect" in c_low or "audit" in c_low or "ai diagnose" in c_low or "diagnose" in c_low or "ai fix" in c_low:
+        elif "inspect" in c_low or "audit" in c_low or "ai diagnose" in c_low or "diagnose" in c_low or "ai fix" in c_low or "gravix ai" in c_low or "ai" in c_low or "⚡" in raw_input or "⚡" in clean_input:
             action = "ai_diagnose"
 
     bot_data = database.get_bot(bot_id)

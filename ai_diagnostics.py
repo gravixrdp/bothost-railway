@@ -95,7 +95,16 @@ def format_ai_response_for_telegram(ai_text: str) -> str:
     """Safely converts AI raw markdown/code blocks into valid Telegram HTML without breaking entities."""
     if not ai_text:
         return "No diagnostic output received."
-    
+
+    # 0. Strip reasoning chains (<think>...</think>, unclosed <think>, and **Reasoning** blocks)
+    ai_text = re.sub(r"<think>.*?</think>", "", ai_text, flags=re.DOTALL)
+    ai_text = re.sub(r"<think>.*", "", ai_text, flags=re.DOTALL)
+    ai_text = re.sub(r"\*\*Reasoning\*\*.*?(?=\*\*Answer|\n\n\n|\Z)", "", ai_text, flags=re.DOTALL)
+    ai_text = re.sub(r"<!--.*?-->", "", ai_text, flags=re.DOTALL)
+    ai_text = ai_text.strip()
+    if not ai_text:
+        return "Analysis completed. Instance active."
+
     # 1. Normalize code fences ```lang\ncode\n``` -> <pre><code>escaped_code</code></pre>
     def replace_code_block(match):
         code_body = match.group(2)
@@ -188,9 +197,10 @@ async def run_ai_diagnostics(bot_id: str, caller_user_id: int, is_admin_caller: 
     candidate_models = [
         (GROQ_MODEL or "qwen/qwen3.8-27b").strip(),
         "qwen/qwen3.8-27b",
-        "qwen/qwen3.6-27b",
         "openai/gpt-oss-120b",
-        "groq/compound"
+        "openai/gpt-oss-20b",
+        "groq/compound-mini",
+        "qwen/qwen3.6-27b"
     ]
     seen_models = set()
     models_to_try = [m for m in candidate_models if m and not (m in seen_models or seen_models.add(m))]
@@ -199,7 +209,7 @@ async def run_ai_diagnostics(bot_id: str, caller_user_id: int, is_admin_caller: 
     last_error = ""
 
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        async with httpx.AsyncClient(timeout=25.0) as client:
             for model_name in models_to_try:
                 try:
                     response = await client.post(
@@ -215,7 +225,7 @@ async def run_ai_diagnostics(bot_id: str, caller_user_id: int, is_admin_caller: 
                                 {"role": "user", "content": user_content}
                             ],
                             "temperature": 0.15,
-                            "max_tokens": 350
+                            "max_tokens": 700
                         }
                     )
 
